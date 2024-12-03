@@ -28,7 +28,7 @@ DEBUG = True
 # settings.py
 
 ALLOWED_HOSTS = [
-    'orgoback-production.up.railway.app',
+    ' https://orgoback-production.up.railway.app',
     # Add other allowed hosts if necessary, e.g.,
     'localhost',
     '127.0.0.1',
