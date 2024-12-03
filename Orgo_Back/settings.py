@@ -25,8 +25,15 @@ SECRET_KEY = 'django-insecure-7gx)4y4h2k1)0&&k(aaoo!%bukb5j&%25$iwhz$rjk6jtislfw
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['*']
+# settings.py
 
+ALLOWED_HOSTS = [
+    'orgoback-production.up.railway.app',
+    # Add other allowed hosts if necessary, e.g.,
+    'localhost',
+    '127.0.0.1',
+]
+CORS_ALLOW_CREDENTIALS = True
 
 # Application definition
 
@@ -43,7 +50,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
     'drf_yasg',
-
+    'corsheaders',
     # Ваше основное приложение
     'main',
 ]
@@ -57,6 +64,8 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'corsheaders.middleware.CorsMiddleware',  # Add this at the top
+    'django.middleware.common.CommonMiddleware',
 ]
 
 ROOT_URLCONF = 'Orgo_Back.urls'
