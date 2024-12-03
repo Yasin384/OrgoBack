@@ -36,6 +36,10 @@ ALLOWED_HOSTS = [
 CORS_ALLOW_CREDENTIALS = True
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 # Application definition
+CSRF_TRUSTED_ORIGINS = [
+    'https://orgoback-production.up.railway.app',
+  # Replace with your frontend domain if applicable
+]
 
 INSTALLED_APPS = [
     # Стандартные приложения Django
