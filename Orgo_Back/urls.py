@@ -26,6 +26,7 @@ schema_view = get_schema_view(
 
 urlpatterns = [
     # Админ-панель Django
+     path('jet/', include('jet.urls', 'jet')), 
     path('admin/', admin.site.urls),
 
     # Включаем маршруты приложения 'main'

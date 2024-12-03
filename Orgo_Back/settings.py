@@ -49,7 +49,8 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    
+    'suit',
+
 
     # Приложения третьих сторон
     'rest_framework',
@@ -160,3 +161,19 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.BrowsableAPIRenderer',
     ],
 }
+JET_DEFAULT_THEME = 'light-blue'  # Choose a default theme ('light-blue', 'black', etc.)
+JET_SIDE_MENU_COMPACT = True      # Compact the side menu
+JET_THEMES = [
+    {
+        'theme': 'default',      # The default theme
+        'color': '#47bac1',      # Primary color
+        'title': 'Default Theme'
+    },
+    {
+        'theme': 'light-green',  # Custom theme
+        'color': '#44a542',
+        'title': 'Green Theme'
+    },
+]
+JET_INDEX_DASHBOARD = 'main.dashboard.CustomIndexDashboard'
+JET_APP_INDEX_DASHBOARD = 'main.dashboard.CustomAppIndexDashboard'

@@ -1,0 +1,21 @@
+<div class="dashboard-module">
+    <h3>Leaderboard</h3>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Rank</th>
+                <th>Name</th>
+                <th>Points</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for rank, entry in children|enumerate %}
+                <tr>
+                    <td>{{ rank }}</td>
+                    <td>{{ entry.user.username }}</td>
+                    <td>{{ entry.points }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>

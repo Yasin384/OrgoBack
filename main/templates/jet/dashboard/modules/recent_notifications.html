@@ -1,0 +1,21 @@
+<div class="dashboard-module">
+    <h3>Recent Notifications</h3>
+    <table class="table">
+        <thead>
+            <tr>
+                <th>Title</th>
+                <th>Message</th>
+                <th>Date</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for notification in children %}
+                <tr>
+                    <td>{{ notification.title }}</td>
+                    <td>{{ notification.message|truncatewords:10 }}</td>
+                    <td>{{ notification.created_at|date:"Y-m-d H:i" }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
