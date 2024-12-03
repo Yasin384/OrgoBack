@@ -28,7 +28,8 @@ DEBUG = True
 # settings.py
 
 ALLOWED_HOSTS = [
-    ' orgoback-production.up.railway.app',
+    'orgoback-production.up.railway.app',
+    "https://orgoback-production.up.railway.app/",
     # Add other allowed hosts if necessary, e.g.,
     
 ]
@@ -44,6 +45,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    
 
     # Приложения третьих сторон
     'rest_framework',
