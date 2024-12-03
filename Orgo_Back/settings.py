@@ -20,7 +20,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-7gx)4y4h2k1)0&&k(aaoo!%bukb5j&%25$iwhz$rjk6jtislfw'
+SECRET_KEY = 'django-insecure-7gx)4y4h2k1)0&&k(aaoo!ukb5j&%25$iwhz$rjk6jtislfw'
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -30,8 +30,7 @@ DEBUG = True
 ALLOWED_HOSTS = [
     ' orgoback-production.up.railway.app',
     # Add other allowed hosts if necessary, e.g.,
-    'localhost',
-    '127.0.0.1',
+    
 ]
 CORS_ALLOW_CREDENTIALS = True
 
