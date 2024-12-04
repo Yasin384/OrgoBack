@@ -31,6 +31,7 @@ urlpatterns = [
 
     # Включаем маршруты приложения 'main'
     path('api/', include('main.urls')),
+    path("",include(main.urls)
 
     # Маршруты для аутентификации через browsable API DRF
     path('api-auth/', include('rest_framework.urls', namespace='rest_framework')),
