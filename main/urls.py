@@ -34,3 +34,6 @@ urlpatterns = [
     path('login/', CustomObtainAuthToken.as_view(), name='api_token_auth'),
     path('logout/', logout_view, name='api_logout'),
 ]
+
+
+
