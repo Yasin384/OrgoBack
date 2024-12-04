@@ -29,7 +29,7 @@ DEBUG = True
 
 ALLOWED_HOSTS = [
     'orgoback-production.up.railway.app',
-    "https://orgoback-production.up.railway.app/",
+    
     # Add other allowed hosts if necessary, e.g.,
     
 ]
