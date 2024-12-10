@@ -24,8 +24,22 @@ from .serializers import (
 )
 
 import datetime
-
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import permissions
+from .serializers import UserSerializer, UserProfileSerializer
 User = get_user_model()
+class UserMeView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        user_serializer = UserSerializer(request.user)
+        user_profile_serializer = UserProfileSerializer(request.user.userprofile)
+        return Response({
+            **user_serializer.data,
+            **user_profile_serializer.data
+        })
+
 
 # Настройка времени истечения токена (24 часа)
 TOKEN_EXPIRATION_TIME = datetime.timedelta(hours=24)

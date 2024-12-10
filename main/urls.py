@@ -33,6 +33,7 @@ urlpatterns = [
     # Маршруты для аутентификации
     path('login/', CustomObtainAuthToken.as_view(), name='api_token_auth'),
     path('logout/', logout_view, name='api_logout'),
+    path('me/', UserMeView.as_view(), name='user_me'), 
 ]
 
 
