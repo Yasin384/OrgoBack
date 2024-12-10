@@ -1,10 +1,9 @@
-
-# apps.py
+# main/apps.py
 
 from django.apps import AppConfig
 
-class mainConfig(AppConfig):
+class MainConfig(AppConfig):
     name = 'main'
 
     def ready(self):
-        import main.signals
+        import main.signals  # Импортируем сигналы
