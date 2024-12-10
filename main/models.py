@@ -23,7 +23,7 @@ class User(AbstractUser):
         (TEACHER, 'Учитель'),
         (PARENT, 'Родитель'),
     ]
-
+    name = models.CharField(max_length=255,default='Guest')
     # Поле для хранения роли пользователя
     role = models.CharField(
         max_length=10,
@@ -61,6 +61,7 @@ class Subject(models.Model):
         unique=True,
         help_text="Название предмета."
     )
+    
 
     def __str__(self):
         return self.name
