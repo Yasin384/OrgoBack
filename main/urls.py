@@ -8,7 +8,7 @@ from .views import (
     UserViewSet, CustomObtainAuthToken, ClassViewSet, SubjectViewSet,
     ScheduleViewSet, HomeworkViewSet, SubmittedHomeworkViewSet, GradeViewSet,
     AttendanceViewSet, AchievementViewSet, UserProfileViewSet,
-    LeaderboardViewSet, NotificationViewSet, logout_view
+    LeaderboardViewSet, NotificationViewSet, logout_view,UserMeView,
 )
 
 # Создаём роутер и регистрируем ViewSet'ы
