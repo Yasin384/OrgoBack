@@ -343,12 +343,7 @@ class UserProfile(models.Model):
     """
     Модель профиля пользователя, содержащая информацию для геймификации.
     """
-    user = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='profile',
-        help_text="Пользователь."
-    )
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='userprofile')
     xp = models.PositiveIntegerField(
         default=0,
         help_text="Накопленные очки XP."
@@ -373,12 +368,7 @@ class UserAchievement(models.Model):
     """
     Промежуточная модель для связи пользователей с достижениями.
     """
-    user_profile = models.ForeignKey(
-        UserProfile,
-        on_delete=models.CASCADE,
-        related_name='user_achievements',
-        help_text="Профиль пользователя."
-    )
+    user_profile = models.ForeignKey(UserProfile, on_delete=models.CASCADE)
     achievement = models.ForeignKey(
         Achievement,
         on_delete=models.CASCADE,
