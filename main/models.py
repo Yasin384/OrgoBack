@@ -1,17 +1,56 @@
 from django.db import models
-# models.py
-
 from django.contrib.auth.models import AbstractUser
-from django.db import models
 from django.conf import settings
 from django.utils import timezone
 import uuid
+
+# Модель школы
+class School(models.Model):
+    """
+    Модель школы.
+    """
+    name = models.CharField(
+        max_length=255,
+        unique=True,
+        help_text="Название школы.",
+        default="Unnamed School"
+    )
+    address = models.CharField(
+        max_length=500,
+        help_text="Адрес школы.",
+        default="No Address Provided"
+    )
+    phone = models.CharField(
+        max_length=20,
+        blank=True,
+        null=True,
+        help_text="Контактный телефон школы."
+    )
+    email = models.EmailField(
+        unique=True,
+        help_text="Электронная почта школы.",
+        default="admin@school.com"
+    )
+    website = models.URLField(
+        blank=True,
+        null=True,
+        help_text="Веб-сайт школы."
+    )
+    established_date = models.DateField(
+        blank=True,
+        null=True,
+        help_text="Дата основания школы."
+    )
+
+    def __str__(self):
+        return self.name
+
 
 # Кастомная модель пользователя с различными ролями
 class User(AbstractUser):
     """
     Кастомная модель пользователя, расширяющая AbstractUser.
-    Добавляет поле role для определения роли пользователя.
+    Добавляет поле role для определения роли пользователя и связь со школой.
     """
     # Определяем возможные роли
     STUDENT = 'student'
@@ -23,13 +62,30 @@ class User(AbstractUser):
         (TEACHER, 'Учитель'),
         (PARENT, 'Родитель'),
     ]
-    name = models.CharField(max_length=255,default='Guest')
+
     # Поле для хранения роли пользователя
     role = models.CharField(
         max_length=10,
         choices=ROLE_CHOICES,
         default=STUDENT,
         help_text="Роль пользователя: студент, учитель или родитель."
+    )
+
+    # Связь со школой (только для учителей и студентов)
+    school = models.ForeignKey(
+        School,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='users',
+        help_text="Школа пользователя. Только для учителей и студентов."
+    )
+
+    # Дополнительное поле имени с значением по умолчанию
+    name = models.CharField(
+        max_length=255,
+        default='Guest',
+        help_text="Имя пользователя."
     )
 
     def __str__(self):
@@ -46,9 +102,22 @@ class Class(models.Model):
         unique=True,
         help_text="Название класса, например, 5А."
     )
+    students = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        related_name='classes',
+        limit_choices_to={'role': User.STUDENT},
+        help_text="Студенты, принадлежащие к классу."
+    )
+    teachers = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        related_name='teaching_classes',
+        limit_choices_to={'role': User.TEACHER},
+        help_text="Учителя, ведущие класс."
+    )
 
     def __str__(self):
         return self.name
+
 
 
 # Модель предмета, например, математика, русский язык и т.д.
@@ -59,9 +128,9 @@ class Subject(models.Model):
     name = models.CharField(
         max_length=50,
         unique=True,
-        help_text="Название предмета."
+        help_text="Название предмета.",
+        default="Unnamed Subject"
     )
-    
 
     def __str__(self):
         return self.name
@@ -104,13 +173,16 @@ class Schedule(models.Model):
     )
     weekday = models.IntegerField(
         choices=WEEKDAYS,
-        help_text="День недели проведения занятия."
+        help_text="День недели проведения занятия.",
+        default=1  # Значение по умолчанию: Понедельник
     )
     start_time = models.TimeField(
-        help_text="Время начала занятия."
+        help_text="Время начала занятия.",
+        default=timezone.now
     )
     end_time = models.TimeField(
-        help_text="Время окончания занятия."
+        help_text="Время окончания занятия.",
+        default=timezone.now
     )
 
     class Meta:
@@ -125,7 +197,7 @@ class Schedule(models.Model):
 class Homework(models.Model):
     """
     Модель домашнего задания.
-    Связывает предмет, класс, описание задания и срок сдачи.
+    Связывает предмет, класс, школу, описание задания и срок сдачи.
     """
     id = models.UUIDField(
         primary_key=True,
@@ -145,11 +217,14 @@ class Homework(models.Model):
         related_name='homeworks',
         help_text="Класс, для которого задано домашнее задание."
     )
+    
     description = models.TextField(
-        help_text="Описание домашнего задания."
+        help_text="Описание домашнего задания.",
+        default="No description provided."
     )
     due_date = models.DateTimeField(
-        help_text="Срок сдачи задания."
+        help_text="Срок сдачи задания.",
+        default=timezone.now
     )
     created_at = models.DateTimeField(
         auto_now_add=True,
@@ -186,7 +261,8 @@ class SubmittedHomework(models.Model):
     )
     submission_file = models.FileField(
         upload_to='homeworks/submissions/',
-        help_text="Файл с выполненным заданием."
+        help_text="Файл с выполненным заданием.",
+        default='homeworks/submissions/default_submission.txt'
     )
     submitted_at = models.DateTimeField(
         auto_now_add=True,
@@ -208,7 +284,8 @@ class SubmittedHomework(models.Model):
     feedback = models.TextField(
         null=True,
         blank=True,
-        help_text="Обратная связь от учителя."
+        help_text="Обратная связь от учителя.",
+        default=""
     )
 
     class Meta:
@@ -239,7 +316,8 @@ class Grade(models.Model):
     grade = models.DecimalField(
         max_digits=3,
         decimal_places=1,
-        help_text="Оценка студента."
+        help_text="Оценка студента.",
+        default=0.0
     )
     date = models.DateField(
         default=timezone.now,
@@ -256,7 +334,8 @@ class Grade(models.Model):
     comments = models.TextField(
         null=True,
         blank=True,
-        help_text="Комментарии учителя к оценке."
+        help_text="Комментарии учителя к оценке.",
+        default=""
     )
 
     def __str__(self):
@@ -267,7 +346,7 @@ class Grade(models.Model):
 class Attendance(models.Model):
     """
     Модель учёта посещаемости студентов.
-    Связывает студента, класс, дату и статус посещаемости.
+    Связывает студента, класс, школу, дату и статус посещаемости.
     """
     STATUS_CHOICES = [
         ('present', 'Присутствует'),
@@ -288,8 +367,17 @@ class Attendance(models.Model):
         related_name='attendances',
         help_text="Класс студента."
     )
+    school = models.ForeignKey(
+        School,
+        on_delete=models.CASCADE,
+        related_name='attendances',
+        help_text="Школа, к которой относится посещаемость.",
+        null=True,
+        blank=True,
+    )
     date = models.DateField(
-        help_text="Дата посещаемости."
+        help_text="Дата посещаемости.",
+        default=timezone.now
     )
     status = models.CharField(
         max_length=10,
@@ -300,7 +388,8 @@ class Attendance(models.Model):
     notes = models.TextField(
         null=True,
         blank=True,
-        help_text="Примечания к посещаемости."
+        help_text="Примечания к посещаемости.",
+        default=""
     )
 
     class Meta:
@@ -308,6 +397,33 @@ class Attendance(models.Model):
 
     def __str__(self):
         return f"{self.student} - {self.date} - {self.get_status_display()}"
+
+
+# Модель связи родитель-ученик
+class ParentChild(models.Model):
+    """
+    Модель для связи родителей с их детьми (студентами).
+    """
+    parent = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='children_relations',
+        limit_choices_to={'role': User.PARENT},
+        help_text="Родитель."
+    )
+    child = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='parent_relations',
+        limit_choices_to={'role': User.STUDENT},
+        help_text="Ребёнок."
+    )
+
+    class Meta:
+        unique_together = ('parent', 'child')
+
+    def __str__(self):
+        return f"{self.parent.username} -> {self.child.username}"
 
 
 # Модель достижений
@@ -318,16 +434,19 @@ class Achievement(models.Model):
     name = models.CharField(
         max_length=100,
         unique=True,
-        help_text="Название достижения."
+        help_text="Название достижения.",
+        default="Unnamed Achievement"
     )
     description = models.TextField(
-        help_text="Описание достижения."
+        help_text="Описание достижения.",
+        default="No description provided."
     )
     icon = models.ImageField(
         upload_to='achievements/icons/',
         null=True,
         blank=True,
-        help_text="Иконка достижения."
+        help_text="Иконка достижения.",
+        default='achievements/icons/default_icon.png'
     )
     xp_reward = models.PositiveIntegerField(
         default=0,
@@ -343,7 +462,12 @@ class UserProfile(models.Model):
     """
     Модель профиля пользователя, содержащая информацию для геймификации.
     """
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='userprofile')
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='profile',
+        help_text="Пользователь.",
+    )
     xp = models.PositiveIntegerField(
         default=0,
         help_text="Накопленные очки XP."
@@ -368,7 +492,12 @@ class UserAchievement(models.Model):
     """
     Промежуточная модель для связи пользователей с достижениями.
     """
-    user_profile = models.ForeignKey(UserProfile, on_delete=models.CASCADE)
+    user_profile = models.ForeignKey(
+        UserProfile,
+        on_delete=models.CASCADE,
+        related_name='user_achievements',
+        help_text="Профиль пользователя."
+    )
     achievement = models.ForeignKey(
         Achievement,
         on_delete=models.CASCADE,
@@ -400,7 +529,8 @@ class Leaderboard(models.Model):
     )
     rank = models.PositiveIntegerField(
         unique=True,
-        help_text="Место в таблице лидеров."
+        help_text="Место в таблице лидеров.",
+        default=1
     )
 
     def __str__(self):
@@ -419,7 +549,8 @@ class Notification(models.Model):
         help_text="Пользователь, получающий уведомление."
     )
     message = models.TextField(
-        help_text="Текст уведомления."
+        help_text="Текст уведомления.",
+        default="No message."
     )
     created_at = models.DateTimeField(
         auto_now_add=True,
@@ -432,4 +563,5 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"Уведомление для {self.user.username} - {'Прочитано' if self.is_read else 'Не прочитано'}"
+
 # Create your models here.
