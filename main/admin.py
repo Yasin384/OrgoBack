@@ -87,8 +87,10 @@ class SubmittedHomeworkAdmin(admin.ModelAdmin):
     Админ-панель для модели SubmittedHomework.
     """
     list_display = ('homework', 'student', 'submitted_at', 'status', 'grade')
-    list_filter = ('status', 'homework__subject', 'student__class_obj')
+    list_filter = ('status', 'homework__subject', 'homework__class_obj')
     search_fields = ('homework__subject__name', 'student__username')
+
+    # Опционально, вы можете добавить дополнительные методы или настройки здесь
 
 
 @admin.register(Grade)
