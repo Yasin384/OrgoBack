@@ -151,11 +151,36 @@ AUTH_USER_MODEL = 'main.User'
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
 
 STATIC_URL = 'static/'
+# settings.py
+
+# Allow all origins
 CORS_ALLOW_ALL_ORIGINS = True
-CORS_ALLOWED_ORIGINS = [
-    'https://orgoback-production.up.railway.app',
-    'http://localhost:3000',  # Добавьте этот адрес
-    # другие разрешённые адреса
+
+# If you have CORS_ALLOW_CREDENTIALS set to True, it cannot be used with CORS_ALLOW_ALL_ORIGINS=True
+# because the CORS specification disallows using wildcard origins with credentials.
+# You need to set it to False if you want to allow all origins.
+CORS_ALLOW_CREDENTIALS = False
+
+# Optionally, you can specify allowed methods and headers
+CORS_ALLOW_METHODS = [
+    "DELETE",
+    "GET",
+    "OPTIONS",
+    "PATCH",
+    "POST",
+    "PUT",
+]
+
+CORS_ALLOW_HEADERS = [
+    "accept",
+    "accept-encoding",
+    "authorization",
+    "content-type",
+    "dnt",
+    "origin",
+    "user-agent",
+    "x-csrftoken",
+    "x-requested-with",
 ]
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field

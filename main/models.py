@@ -91,14 +91,9 @@ class User(AbstractUser):
     def __str__(self):
         return f"{self.username} ({self.get_role_display()})"
 
-
-# Модель класса, например, 5А, 6Б и т.д.
 class Class(models.Model):
-    """
-    Модель класса, например, 5А, 6Б и т.д.
-    """
     name = models.CharField(
-        max_length=10,
+        max_length=100,  # Увеличиваем максимальную длину до 100 символов
         unique=True,
         help_text="Название класса, например, 5А."
     )
@@ -117,7 +112,6 @@ class Class(models.Model):
 
     def __str__(self):
         return self.name
-
 
 
 # Модель предмета, например, математика, русский язык и т.д.
