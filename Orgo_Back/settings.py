@@ -219,10 +219,10 @@ REST_FRAMEWORK = {
     ],
 }
 
-# Логирование
+
 LOGGING = {
     'version': 1,
-    'disable_existing_loggers': False,
+    'disable_existing_loggers': False,  # Не отключать встроенные логгеры Django
     'formatters': {
         'verbose': {
             'format': '[{asctime}] {levelname} [{name}] {message}',
@@ -234,10 +234,16 @@ LOGGING = {
         },
     },
     'handlers': {
-        'file': {
+        'file_info': {
             'level': 'INFO',
             'class': 'logging.FileHandler',
-            'filename': BASE_DIR / 'logs/app.log',
+            'filename': BASE_DIR / 'logs/info.log',
+            'formatter': 'verbose',
+        },
+        'file_error': {
+            'level': 'ERROR',
+            'class': 'logging.FileHandler',
+            'filename': BASE_DIR / 'logs/error.log',
             'formatter': 'verbose',
         },
         'console': {
@@ -246,15 +252,24 @@ LOGGING = {
         },
     },
     'loggers': {
-        'main': {
-            'handlers': ['file', 'console'],
+        'django': {
+            'handlers': ['file_info', 'file_error', 'console'],
             'level': 'INFO',
             'propagate': True,
         },
-        # Добавьте другие логгеры, если необходимо
+        'main': {  # Логгер для вашего основного приложения 'main'
+            'handlers': ['file_info', 'file_error', 'console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        # Добавьте другие логгеры для других приложений при необходимости
     },
 }
 
+# Создайте директорию logs, если её нет
+LOG_DIR = BASE_DIR / 'logs'
+if not LOG_DIR.exists():
+    LOG_DIR.mkdir(parents=True)
 # Безопасность в продакшене
 if not DEBUG:
     # Используйте HTTPS

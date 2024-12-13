@@ -6,6 +6,15 @@ import uuid
 
 
 # Модель школы
+# main/models.py
+
+from django.db import models
+from django.contrib.auth.models import AbstractUser
+from django.conf import settings
+from django.utils import timezone
+import uuid
+
+# Модель школы
 class School(models.Model):
     """
     Модель школы.
@@ -42,10 +51,23 @@ class School(models.Model):
         null=True,
         help_text="Дата основания школы."
     )
+    latitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        help_text="Широта школы."
+    )
+    longitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        help_text="Долгота школы."
+    )
 
     def __str__(self):
         return self.name
-
 
 # Кастомная модель пользователя с различными ролями
 class User(AbstractUser):
