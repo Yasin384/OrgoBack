@@ -28,6 +28,13 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import permissions
 from .serializers import UserSerializer, UserProfileSerializer
+from rest_framework import viewsets, permissions, status
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from django.utils.timezone import now, localtime
+from geopy.distance import geodesic  # For distance calculations
+from .models import Attendance, User, Class
+from .serializers import AttendanceSerializer
 User = get_user_model()
 class UserMeView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -213,7 +220,8 @@ class GradeViewSet(viewsets.ModelViewSet):
 
 class AttendanceViewSet(viewsets.ModelViewSet):
     """
-    ViewSet для управления учётом посещаемости.
+    ViewSet for managing attendance records.
+    Includes a custom action to mark attendance based on GPS coordinates.
     """
     queryset = Attendance.objects.all()
     serializer_class = AttendanceSerializer
@@ -221,24 +229,103 @@ class AttendanceViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """
-        Учителя видят посещаемость по своим классам,
-        студенты и родители видят посещаемость своих детей или себя.
+        Teachers see attendance for their classes.
+        Students and parents see attendance relevant to them.
         """
         user = self.request.user
+
         if user.role == User.TEACHER:
-            # Предполагаем, что учитель привязан к классам через Schedule
-            classes = Class.objects.filter(schedules__teacher=user)
-            return Attendance.objects.filter(class_obj__in=classes)
+            # Teachers see attendance for their classes
+            teacher_classes = Class.objects.filter(schedules__teacher=user)
+            return Attendance.objects.filter(class_obj__in=teacher_classes)
         elif user.role == User.STUDENT:
+            # Students see only their attendance records
             return Attendance.objects.filter(student=user)
         elif user.role == User.PARENT:
-            # Предполагаем, что родитель связан с детьми через модель UserProfile или другую связь
-            # Здесь требуется реализовать связь родителя с их детьми
-            # Для простоты предположим, что у родителя есть поле children, связанное с User
+            # Parents see attendance for their children (assuming a parent-child relationship exists)
             children = User.objects.filter(parent=user)
             return Attendance.objects.filter(student__in=children)
         else:
             return Attendance.objects.none()
+
+    @action(detail=False, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def mark_attendance(self, request):
+        """
+        Custom endpoint to mark attendance based on GPS coordinates.
+        """
+        user = request.user
+
+        if user.role != User.STUDENT:
+            return Response({"error": "Only students can mark attendance."}, status=status.HTTP_403_FORBIDDEN)
+
+        # Retrieve the school coordinates
+        school = getattr(user, 'school', None)  # Assuming the User model has a `school` attribute
+        if not school:
+            return Response({"error": "No school assigned to this user."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Get latitude and longitude from the request
+        latitude = request.data.get('latitude')
+        longitude = request.data.get('longitude')
+        if not latitude or not longitude:
+            return Response({"error": "Latitude and longitude are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            latitude = float(latitude)
+            longitude = float(longitude)
+        except ValueError:
+            return Response({"error": "Invalid latitude or longitude format."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check if the student is within a valid range of the school
+        student_coords = (latitude, longitude)
+        school_coords = (float(school.latitude), float(school.longitude))
+        distance = geodesic(student_coords, school_coords).kilometers
+
+        # Define the acceptable proximity radius (e.g., 100 meters = 0.1 km)
+        proximity_radius = 0.1  # 100 meters
+
+        # Determine attendance status
+        status_value = 'present' if distance <= proximity_radius else 'absent'
+
+        # Create or update the attendance record for today
+        attendance, created = Attendance.objects.update_or_create(
+            student=user,
+            date=localtime(now()).date(),
+            defaults={
+                'class_obj': user.classes.first(),  # Assuming a student is associated with a class
+                'latitude': latitude,
+                'longitude': longitude,
+                'status': status_value,
+            }
+        )
+
+        return Response(AttendanceSerializer(attendance).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
+    def today(self, request):
+        """
+        Custom endpoint to retrieve today's attendance for the authenticated user.
+        """
+        user = request.user
+        today_date = localtime(now()).date()
+
+        if user.role == User.TEACHER:
+            # Retrieve attendance for all students in the teacher's classes
+            teacher_classes = Class.objects.filter(schedules__teacher=user)
+            attendance_records = Attendance.objects.filter(
+                class_obj__in=teacher_classes, date=today_date
+            )
+        elif user.role == User.STUDENT:
+            # Retrieve only the student's attendance for today
+            attendance_records = Attendance.objects.filter(student=user, date=today_date)
+        elif user.role == User.PARENT:
+            # Retrieve attendance for all children of the parent
+            children = User.objects.filter(parent=user)
+            attendance_records = Attendance.objects.filter(student__in=children, date=today_date)
+        else:
+            return Response({"error": "You do not have access to this endpoint."}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = AttendanceSerializer(attendance_records, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class AchievementViewSet(viewsets.ModelViewSet):

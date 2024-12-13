@@ -49,7 +49,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-   
+   'django_celery_beat',
 
 
     # Приложения третьих сторон
@@ -133,7 +133,11 @@ AUTH_PASSWORD_VALIDATORS = [
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
-
+# Celery settings
+CELERY_BROKER_URL = 'redis://localhost:6379/0'  # URL to your Redis server
+CELERY_ACCEPT_CONTENT = ['json']               # Acceptable content types
+CELERY_TASK_SERIALIZER = 'json'                # Serializer for tasks
+CELERY_TIMEZONE = 'UTC'                        # Ensure tasks respect Django's timezone
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.1/topics/i18n/

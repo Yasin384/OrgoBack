@@ -3,7 +3,7 @@ from django.contrib.auth.models import AbstractUser
 from django.conf import settings
 from django.utils import timezone
 import uuid
-
+from decimal import Decimal
 # Модель школы
 class School(models.Model):
     """
@@ -347,6 +347,14 @@ class Attendance(models.Model):
         ('absent', 'Отсутствует'),
         ('excused', 'По уважительной причине'),
     ]
+    latitude = models.DecimalField(
+        max_digits=9, decimal_places=6, null=True, blank=True, 
+        help_text="Широта (latitude) для GPS-отметки посещаемости."
+    )
+    longitude = models.DecimalField(
+        max_digits=9, decimal_places=6, null=True, blank=True,
+        help_text="Долгота (longitude) для GPS-отметки посещаемости."
+    )
 
     student = models.ForeignKey(
         settings.AUTH_USER_MODEL,

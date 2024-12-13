@@ -120,12 +120,36 @@ class AttendanceSerializer(serializers.ModelSerializer):
     """
     student = UserSerializer(read_only=True)
     class_obj = ClassSerializer(read_only=True)
+    latitude = serializers.DecimalField(max_digits=9, decimal_places=6, required=False)
+    longitude = serializers.DecimalField(max_digits=9, decimal_places=6, required=False)
 
     class Meta:
         model = Attendance
-        fields = ['id', 'student', 'class_obj', 'date', 'status', 'notes']
+        fields = ['id', 'student', 'class_obj', 'date', 'status', 'latitude', 'longitude', 'notes']
+    def validate(self, data):
+        """
+        Validate that latitude and longitude are provided if attendance is being marked.
+        """
+        if 'latitude' in data and 'longitude' in data:
+            school = self.context['request'].user.school
+            if not school:
+                raise serializers.ValidationError("School coordinates are not set for this user.")
+            # Validate proximity to the school (e.g., within 100 meters)
+            valid = self.is_within_school_proximity(
+                data['latitude'], data['longitude'], school.latitude, school.longitude
+            )
+            data['status'] = 'present' if valid else 'absent'
+        return data
 
-
+    def is_within_school_proximity(self, lat1, lon1, lat2, lon2, radius=0.1):
+        """
+        Check if the distance between two coordinates is within a given radius (default: ~100 meters).
+        """
+        from geopy.distance import geodesic
+        student_coords = (lat1, lon1)
+        school_coords = (lat2, lon2)
+        distance = geodesic(student_coords, school_coords).kilometers
+        return distance <= radius
 class AchievementSerializer(serializers.ModelSerializer):
     """
     Сериализатор для модели Achievement.
