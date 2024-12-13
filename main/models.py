@@ -3,7 +3,8 @@ from django.contrib.auth.models import AbstractUser
 from django.conf import settings
 from django.utils import timezone
 import uuid
-from decimal import Decimal
+
+
 # Модель школы
 class School(models.Model):
     """
@@ -50,9 +51,7 @@ class School(models.Model):
 class User(AbstractUser):
     """
     Кастомная модель пользователя, расширяющая AbstractUser.
-    Добавляет поле role для определения роли пользователя и связь со школой.
     """
-    # Определяем возможные роли
     STUDENT = 'student'
     TEACHER = 'teacher'
     PARENT = 'parent'
@@ -63,15 +62,12 @@ class User(AbstractUser):
         (PARENT, 'Родитель'),
     ]
 
-    # Поле для хранения роли пользователя
     role = models.CharField(
         max_length=10,
         choices=ROLE_CHOICES,
         default=STUDENT,
         help_text="Роль пользователя: студент, учитель или родитель."
     )
-
-    # Связь со школой (только для учителей и студентов)
     school = models.ForeignKey(
         School,
         on_delete=models.SET_NULL,
@@ -80,8 +76,6 @@ class User(AbstractUser):
         related_name='users',
         help_text="Школа пользователя. Только для учителей и студентов."
     )
-
-    # Дополнительное поле имени с значением по умолчанию
     name = models.CharField(
         max_length=255,
         default='Guest',
@@ -91,9 +85,14 @@ class User(AbstractUser):
     def __str__(self):
         return f"{self.username} ({self.get_role_display()})"
 
+
+# Модель класса
 class Class(models.Model):
+    """
+    Модель класса.
+    """
     name = models.CharField(
-        max_length=100,  # Увеличиваем максимальную длину до 100 символов
+        max_length=100,
         unique=True,
         help_text="Название класса, например, 5А."
     )
@@ -114,10 +113,10 @@ class Class(models.Model):
         return self.name
 
 
-# Модель предмета, например, математика, русский язык и т.д.
+# Модель предмета
 class Subject(models.Model):
     """
-    Модель предмета, например, математика, русский язык и т.д.
+    Модель предмета.
     """
     name = models.CharField(
         max_length=50,
@@ -134,7 +133,6 @@ class Subject(models.Model):
 class Schedule(models.Model):
     """
     Модель расписания занятий.
-    Связывает класс, предмет, учителя и время проведения.
     """
     WEEKDAYS = [
         (1, 'Понедельник'),
@@ -168,15 +166,13 @@ class Schedule(models.Model):
     weekday = models.IntegerField(
         choices=WEEKDAYS,
         help_text="День недели проведения занятия.",
-        default=1  # Значение по умолчанию: Понедельник
+        default=1
     )
     start_time = models.TimeField(
-        help_text="Время начала занятия.",
-        default=timezone.now
+        help_text="Время начала занятия."
     )
     end_time = models.TimeField(
-        help_text="Время окончания занятия.",
-        default=timezone.now
+        help_text="Время окончания занятия."
     )
 
     class Meta:
@@ -191,7 +187,6 @@ class Schedule(models.Model):
 class Homework(models.Model):
     """
     Модель домашнего задания.
-    Связывает предмет, класс, школу, описание задания и срок сдачи.
     """
     id = models.UUIDField(
         primary_key=True,
@@ -211,14 +206,12 @@ class Homework(models.Model):
         related_name='homeworks',
         help_text="Класс, для которого задано домашнее задание."
     )
-    
     description = models.TextField(
         help_text="Описание домашнего задания.",
         default="No description provided."
     )
     due_date = models.DateTimeField(
-        help_text="Срок сдачи задания.",
-        default=timezone.now
+        help_text="Срок сдачи задания."
     )
     created_at = models.DateTimeField(
         auto_now_add=True,
@@ -233,7 +226,6 @@ class Homework(models.Model):
 class SubmittedHomework(models.Model):
     """
     Модель отправленного домашнего задания студентом.
-    Связывает домашнее задание, студента, файл и статус.
     """
     STATUS_CHOICES = [
         ('submitted', 'Отправлено'),
@@ -255,8 +247,7 @@ class SubmittedHomework(models.Model):
     )
     submission_file = models.FileField(
         upload_to='homeworks/submissions/',
-        help_text="Файл с выполненным заданием.",
-        default='homeworks/submissions/default_submission.txt'
+        help_text="Файл с выполненным заданием."
     )
     submitted_at = models.DateTimeField(
         auto_now_add=True,
@@ -278,8 +269,7 @@ class SubmittedHomework(models.Model):
     feedback = models.TextField(
         null=True,
         blank=True,
-        help_text="Обратная связь от учителя.",
-        default=""
+        help_text="Обратная связь от учителя."
     )
 
     class Meta:
@@ -289,10 +279,10 @@ class SubmittedHomework(models.Model):
         return f"{self.student} - {self.homework}"
 
 
-# Модель оценок (Grades)
+# Модель оценок
 class Grade(models.Model):
     """
-    Модель оценок для хранения оценок студентов по различным категориям.
+    Модель оценок для студентов.
     """
     student = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -310,8 +300,7 @@ class Grade(models.Model):
     grade = models.DecimalField(
         max_digits=3,
         decimal_places=1,
-        help_text="Оценка студента.",
-        default=0.0
+        help_text="Оценка студента."
     )
     date = models.DateField(
         default=timezone.now,
@@ -328,33 +317,23 @@ class Grade(models.Model):
     comments = models.TextField(
         null=True,
         blank=True,
-        help_text="Комментарии учителя к оценке.",
-        default=""
+        help_text="Комментарии учителя к оценке."
     )
 
     def __str__(self):
         return f"{self.student} - {self.subject} - {self.grade}"
 
 
-# Модель учёта посещаемости
+# Модель посещаемости
 class Attendance(models.Model):
     """
-    Модель учёта посещаемости студентов.
-    Связывает студента, класс, школу, дату и статус посещаемости.
+    Модель посещаемости студентов.
     """
     STATUS_CHOICES = [
         ('present', 'Присутствует'),
         ('absent', 'Отсутствует'),
         ('excused', 'По уважительной причине'),
     ]
-    latitude = models.DecimalField(
-        max_digits=9, decimal_places=6, null=True, blank=True, 
-        help_text="Широта (latitude) для GPS-отметки посещаемости."
-    )
-    longitude = models.DecimalField(
-        max_digits=9, decimal_places=6, null=True, blank=True,
-        help_text="Долгота (longitude) для GPS-отметки посещаемости."
-    )
 
     student = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -378,8 +357,8 @@ class Attendance(models.Model):
         blank=True,
     )
     date = models.DateField(
-        help_text="Дата посещаемости.",
-        default=timezone.now
+        default=timezone.now,
+        help_text="Дата посещаемости."
     )
     status = models.CharField(
         max_length=10,
@@ -390,8 +369,7 @@ class Attendance(models.Model):
     notes = models.TextField(
         null=True,
         blank=True,
-        help_text="Примечания к посещаемости.",
-        default=""
+        help_text="Примечания к посещаемости."
     )
 
     class Meta:
@@ -401,7 +379,7 @@ class Attendance(models.Model):
         return f"{self.student} - {self.date} - {self.get_status_display()}"
 
 
-# Модель связи родитель-ученик
+# Модель родитель-ребёнок
 class ParentChild(models.Model):
     """
     Модель для связи родителей с их детьми (студентами).
@@ -447,8 +425,7 @@ class Achievement(models.Model):
         upload_to='achievements/icons/',
         null=True,
         blank=True,
-        help_text="Иконка достижения.",
-        default='achievements/icons/default_icon.png'
+        help_text="Иконка достижения."
     )
     xp_reward = models.PositiveIntegerField(
         default=0,
@@ -464,12 +441,7 @@ class UserProfile(models.Model):
     """
     Модель профиля пользователя, содержащая информацию для геймификации.
     """
-    user = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='profile',
-        help_text="Пользователь.",
-    )
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     xp = models.PositiveIntegerField(
         default=0,
         help_text="Накопленные очки XP."
@@ -539,7 +511,7 @@ class Leaderboard(models.Model):
         return f"{self.user_profile.user.username} - Rank {self.rank}"
 
 
-# Модель уведомлений для пользователей
+# Модель уведомлений
 class Notification(models.Model):
     """
     Модель уведомлений для пользователей.
@@ -565,5 +537,3 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"Уведомление для {self.user.username} - {'Прочитано' if self.is_read else 'Не прочитано'}"
-
-# Create your models here.

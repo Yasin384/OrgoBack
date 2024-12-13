@@ -1,14 +1,19 @@
-from django.shortcuts import render
 # views.py
 
-from rest_framework import viewsets, permissions, status
+from django.contrib.auth import get_user_model
+from django.utils import timezone
+from django.utils.timezone import localtime, now
+from django.conf import settings
+
+from rest_framework import viewsets, permissions, status, filters
 from rest_framework.response import Response
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.authtoken.models import Token
 from rest_framework.authtoken.views import ObtainAuthToken
-from django.utils import timezone
-from django.conf import settings
-from django.contrib.auth import get_user_model
+from rest_framework.views import APIView
+from rest_framework.pagination import PageNumberPagination
+
+from geopy.distance import geodesic  # Для расчёта расстояний
 
 from .models import (
     Class, Subject, Schedule, Homework, SubmittedHomework,
@@ -24,28 +29,33 @@ from .serializers import (
 )
 
 import datetime
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import permissions
-from .serializers import UserSerializer, UserProfileSerializer
-from rest_framework import viewsets, permissions, status
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from django.utils.timezone import now, localtime
-from geopy.distance import geodesic  # For distance calculations
-from .models import Attendance, User, Class
-from .serializers import AttendanceSerializer
-User = get_user_model()
-class UserMeView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
 
-    def get(self, request):
-        user_serializer = UserSerializer(request.user)
-        user_profile_serializer = UserProfileSerializer(request.user.userprofile)
-        return Response({
-            **user_serializer.data,
-            **user_profile_serializer.data
-        })
+User = get_user_model()
+
+
+# Кастомные классы разрешений
+class IsTeacher(permissions.BasePermission):
+    """
+    Разрешение только для учителей.
+    """
+    def has_permission(self, request, view):
+        return request.user.role == User.TEACHER
+
+
+class IsStudent(permissions.BasePermission):
+    """
+    Разрешение только для студентов.
+    """
+    def has_permission(self, request, view):
+        return request.user.role == User.STUDENT
+
+
+class IsParent(permissions.BasePermission):
+    """
+    Разрешение только для родителей.
+    """
+    def has_permission(self, request, view):
+        return request.user.role == User.PARENT
 
 
 # Настройка времени истечения токена (24 часа)
@@ -59,6 +69,28 @@ def token_is_expired(token):
     return timezone.now() > token.created + TOKEN_EXPIRATION_TIME
 
 
+# Пагинатор по умолчанию
+class StandardResultsSetPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+class UserMeView(APIView):
+    """
+    Представление для получения информации о текущем пользователе.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        user_serializer = UserSerializer(request.user)
+        user_profile_serializer = UserProfileSerializer(request.user.userprofile)
+        return Response({
+            **user_serializer.data,
+            **user_profile_serializer.data
+        })
+
+
 class UserViewSet(viewsets.ModelViewSet):
     """
     ViewSet для управления пользователями.
@@ -66,6 +98,11 @@ class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
     permission_classes = [permissions.IsAdminUser]
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['username', 'first_name', 'last_name', 'email']
+    ordering_fields = ['username', 'email', 'first_name', 'last_name']
+    ordering = ['username']
 
     @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
     def register(self, request):
@@ -75,7 +112,6 @@ class UserViewSet(viewsets.ModelViewSet):
         serializer = UserRegistrationSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
-            # Создание токена вручную, если нужно
             token, created = Token.objects.get_or_create(user=user)
             return Response({
                 'token': token.key,
@@ -97,7 +133,6 @@ class CustomObtainAuthToken(ObtainAuthToken):
         token, created = Token.objects.get_or_create(user=user)
 
         if not created and token_is_expired(token):
-            # Удаляем истёкший токен и создаём новый
             token.delete()
             token = Token.objects.create(user=user)
 
@@ -111,6 +146,11 @@ class ClassViewSet(viewsets.ModelViewSet):
     queryset = Class.objects.all()
     serializer_class = ClassSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['name']
+    ordering_fields = ['name']
+    ordering = ['name']
 
 
 class SubjectViewSet(viewsets.ModelViewSet):
@@ -120,29 +160,42 @@ class SubjectViewSet(viewsets.ModelViewSet):
     queryset = Subject.objects.all()
     serializer_class = SubjectSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['name']
+    ordering_fields = ['name']
+    ordering = ['name']
 
 
 class ScheduleViewSet(viewsets.ModelViewSet):
     """
     ViewSet для управления расписанием занятий.
     """
-    queryset = Schedule.objects.all()
+    queryset = Schedule.objects.select_related('class_obj', 'subject', 'teacher').all()
     serializer_class = ScheduleSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['class_obj__name', 'subject__name', 'teacher__username']
+    ordering_fields = ['weekday', 'start_time']
+    ordering = ['weekday', 'start_time']
 
     def get_queryset(self):
         """
-        Ограничение доступа: учителя видят только свои расписания,
-        студенты и родители — расписания их классов.
+        Ограничение доступа:
+        - Учителя видят только свои расписания.
+        - Студенты и родители — расписания их классов.
         """
         user = self.request.user
         if user.role == User.TEACHER:
-            return Schedule.objects.filter(teacher=user)
-        elif user.role in [User.STUDENT, User.PARENT]:
-            # Предположим, что у пользователя есть связь с классом
-            # Здесь требуется реализовать связь студента с классом
-            # Для простоты предположим, что у пользователя есть поле class_obj
-            return Schedule.objects.filter(class_obj=user.profile.class_obj)
+            return Schedule.objects.filter(teacher=user).select_related('class_obj', 'subject', 'teacher')
+        elif user.role == User.STUDENT:
+            class_objs = user.classes.all()
+            return Schedule.objects.filter(class_obj__in=class_objs).select_related('class_obj', 'subject', 'teacher')
+        elif user.role == User.PARENT:
+            children = user.parent_relations.values_list('child', flat=True)
+            class_objs = Class.objects.filter(students__in=children).distinct()
+            return Schedule.objects.filter(class_obj__in=class_objs).select_related('class_obj', 'subject', 'teacher')
         else:
             return Schedule.objects.none()
 
@@ -151,9 +204,14 @@ class HomeworkViewSet(viewsets.ModelViewSet):
     """
     ViewSet для управления домашними заданиями.
     """
-    queryset = Homework.objects.all()
+    queryset = Homework.objects.select_related('subject', 'class_obj').all()
     serializer_class = HomeworkSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['subject__name', 'class_obj__name', 'description']
+    ordering_fields = ['due_date', 'created_at']
+    ordering = ['due_date']
 
     def perform_create(self, serializer):
         """
@@ -166,20 +224,29 @@ class SubmittedHomeworkViewSet(viewsets.ModelViewSet):
     """
     ViewSet для управления отправленными домашними заданиями.
     """
-    queryset = SubmittedHomework.objects.all()
+    queryset = SubmittedHomework.objects.select_related('homework', 'student').all()
     serializer_class = SubmittedHomeworkSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['homework__subject__name', 'student__username']
+    ordering_fields = ['submitted_at', 'status']
+    ordering = ['-submitted_at']
 
     def get_queryset(self):
         """
-        Учителя видят все отправленные задания по их предметам,
-        студенты видят только свои отправленные задания.
+        - Учителя видят все отправленные задания по их предметам.
+        - Студенты видят только свои отправленные задания.
+        - Родители видят отправленные задания своих детей.
         """
         user = self.request.user
         if user.role == User.TEACHER:
-            return SubmittedHomework.objects.filter(homework__teacher=user)
+            return SubmittedHomework.objects.filter(homework__teacher=user).select_related('homework', 'student')
         elif user.role == User.STUDENT:
-            return SubmittedHomework.objects.filter(student=user)
+            return SubmittedHomework.objects.filter(student=user).select_related('homework', 'student')
+        elif user.role == User.PARENT:
+            children = user.parent_relations.values_list('child', flat=True)
+            return SubmittedHomework.objects.filter(student__in=children).select_related('homework', 'student')
         else:
             return SubmittedHomework.objects.none()
 
@@ -194,20 +261,29 @@ class GradeViewSet(viewsets.ModelViewSet):
     """
     ViewSet для управления оценками.
     """
-    queryset = Grade.objects.all()
+    queryset = Grade.objects.select_related('student', 'subject', 'teacher').all()
     serializer_class = GradeSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['student__username', 'subject__name', 'teacher__username']
+    ordering_fields = ['date', 'grade']
+    ordering = ['-date']
 
     def get_queryset(self):
         """
-        Учителя видят оценки, которые они выставили,
-        студенты видят только свои оценки.
+        - Учителя видят оценки, которые они выставили.
+        - Студенты видят только свои оценки.
+        - Родители видят оценки своих детей.
         """
         user = self.request.user
         if user.role == User.TEACHER:
-            return Grade.objects.filter(teacher=user)
+            return Grade.objects.filter(teacher=user).select_related('student', 'subject', 'teacher')
         elif user.role == User.STUDENT:
-            return Grade.objects.filter(student=user)
+            return Grade.objects.filter(student=user).select_related('student', 'subject', 'teacher')
+        elif user.role == User.PARENT:
+            children = user.parent_relations.values_list('child', flat=True)
+            return Grade.objects.filter(student__in=children).select_related('student', 'subject', 'teacher')
         else:
             return Grade.objects.none()
 
@@ -220,78 +296,87 @@ class GradeViewSet(viewsets.ModelViewSet):
 
 class AttendanceViewSet(viewsets.ModelViewSet):
     """
-    ViewSet for managing attendance records.
-    Includes a custom action to mark attendance based on GPS coordinates.
+    ViewSet для управления записями посещаемости.
+    Включает пользовательские действия для отметки посещаемости на основе GPS координат.
     """
-    queryset = Attendance.objects.all()
+    queryset = Attendance.objects.select_related('student', 'class_obj', 'school').all()
     serializer_class = AttendanceSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['student__username', 'class_obj__name', 'status']
+    ordering_fields = ['date', 'status']
+    ordering = ['-date']
 
     def get_queryset(self):
         """
-        Teachers see attendance for their classes.
-        Students and parents see attendance relevant to them.
+        - Учителя видят посещаемость для своих классов.
+        - Студенты видят только свою посещаемость.
+        - Родители видят посещаемость своих детей.
         """
         user = self.request.user
 
         if user.role == User.TEACHER:
-            # Teachers see attendance for their classes
-            teacher_classes = Class.objects.filter(schedules__teacher=user)
-            return Attendance.objects.filter(class_obj__in=teacher_classes)
+            # Получаем классы, которые ведёт учитель
+            teacher_classes = Class.objects.filter(teachers=user)
+            return Attendance.objects.filter(class_obj__in=teacher_classes).select_related('student', 'class_obj', 'school')
         elif user.role == User.STUDENT:
-            # Students see only their attendance records
-            return Attendance.objects.filter(student=user)
+            return Attendance.objects.filter(student=user).select_related('student', 'class_obj', 'school')
         elif user.role == User.PARENT:
-            # Parents see attendance for their children (assuming a parent-child relationship exists)
-            children = User.objects.filter(parent=user)
-            return Attendance.objects.filter(student__in=children)
+            # Получаем детей родителя
+            children = User.objects.filter(parent_relations__parent=user)
+            return Attendance.objects.filter(student__in=children).select_related('student', 'class_obj', 'school')
         else:
             return Attendance.objects.none()
 
-    @action(detail=False, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    @action(detail=False, methods=['post'], permission_classes=[IsStudent])
     def mark_attendance(self, request):
         """
-        Custom endpoint to mark attendance based on GPS coordinates.
+        Пользователь (студент) может отметить свою посещаемость на основе GPS координат.
         """
         user = request.user
 
-        if user.role != User.STUDENT:
-            return Response({"error": "Only students can mark attendance."}, status=status.HTTP_403_FORBIDDEN)
-
-        # Retrieve the school coordinates
-        school = getattr(user, 'school', None)  # Assuming the User model has a `school` attribute
+        # Получаем школу пользователя
+        school = user.school
         if not school:
-            return Response({"error": "No school assigned to this user."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "У пользователя не назначена школа."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
-        # Get latitude and longitude from the request
+        # Получаем координаты из запроса
         latitude = request.data.get('latitude')
         longitude = request.data.get('longitude')
         if not latitude or not longitude:
-            return Response({"error": "Latitude and longitude are required."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Необходимо указать широту и долготу."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         try:
             latitude = float(latitude)
             longitude = float(longitude)
         except ValueError:
-            return Response({"error": "Invalid latitude or longitude format."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"error": "Неверный формат широты или долготы."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
-        # Check if the student is within a valid range of the school
+        # Расчёт расстояния до школы
         student_coords = (latitude, longitude)
         school_coords = (float(school.latitude), float(school.longitude))
         distance = geodesic(student_coords, school_coords).kilometers
 
-        # Define the acceptable proximity radius (e.g., 100 meters = 0.1 km)
-        proximity_radius = 0.1  # 100 meters
-
-        # Determine attendance status
+        # Определяем статус посещаемости
+        proximity_radius = 0.1  # Радиус в километрах (100 метров)
         status_value = 'present' if distance <= proximity_radius else 'absent'
 
-        # Create or update the attendance record for today
+        # Получаем класс пользователя
+        class_obj = user.classes.first()
+        if not class_obj:
+            return Response({"error": "У студента не назначен класс."},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        # Создаём или обновляем запись посещаемости на сегодня
         attendance, created = Attendance.objects.update_or_create(
             student=user,
             date=localtime(now()).date(),
             defaults={
-                'class_obj': user.classes.first(),  # Assuming a student is associated with a class
+                'class_obj': class_obj,
                 'latitude': latitude,
                 'longitude': longitude,
                 'status': status_value,
@@ -303,26 +388,28 @@ class AttendanceViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
     def today(self, request):
         """
-        Custom endpoint to retrieve today's attendance for the authenticated user.
+        Получение записей посещаемости на сегодня для текущего пользователя.
         """
         user = request.user
         today_date = localtime(now()).date()
 
         if user.role == User.TEACHER:
-            # Retrieve attendance for all students in the teacher's classes
-            teacher_classes = Class.objects.filter(schedules__teacher=user)
+            # Посещаемость для всех студентов учителя
+            teacher_classes = Class.objects.filter(teachers=user)
             attendance_records = Attendance.objects.filter(
-                class_obj__in=teacher_classes, date=today_date
-            )
+                class_obj__in=teacher_classes,
+                date=today_date
+            ).select_related('student', 'class_obj', 'school')
         elif user.role == User.STUDENT:
-            # Retrieve only the student's attendance for today
-            attendance_records = Attendance.objects.filter(student=user, date=today_date)
+            # Посещаемость только для студента
+            attendance_records = Attendance.objects.filter(student=user, date=today_date).select_related('student', 'class_obj', 'school')
         elif user.role == User.PARENT:
-            # Retrieve attendance for all children of the parent
-            children = User.objects.filter(parent=user)
-            attendance_records = Attendance.objects.filter(student__in=children, date=today_date)
+            # Посещаемость для детей родителя
+            children = User.objects.filter(parent_relations__parent=user)
+            attendance_records = Attendance.objects.filter(student__in=children, date=today_date).select_related('student', 'class_obj', 'school')
         else:
-            return Response({"error": "You do not have access to this endpoint."}, status=status.HTTP_403_FORBIDDEN)
+            return Response({"error": "У вас нет доступа к этому эндпоинту."},
+                            status=status.HTTP_403_FORBIDDEN)
 
         serializer = AttendanceSerializer(attendance_records, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
@@ -335,50 +422,70 @@ class AchievementViewSet(viewsets.ModelViewSet):
     queryset = Achievement.objects.all()
     serializer_class = AchievementSerializer
     permission_classes = [permissions.IsAdminUser]
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['name']
+    ordering_fields = ['xp_reward', 'name']
+    ordering = ['name']
 
 
 class UserProfileViewSet(viewsets.ModelViewSet):
     """
     ViewSet для управления профилями пользователей.
     """
-    queryset = UserProfile.objects.all()
+    queryset = UserProfile.objects.select_related('user').prefetch_related('achievements').all()
     serializer_class = UserProfileSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['user__username', 'user__first_name', 'user__last_name']
+    ordering_fields = ['xp', 'level']
+    ordering = ['-xp']
 
     def get_queryset(self):
         user = self.request.user
-        if user.role == User.ADMIN:
-            return UserProfile.objects.all()
+        if user.is_staff:
+            return UserProfile.objects.all().select_related('user').prefetch_related('achievements')
         else:
-            return UserProfile.objects.filter(user=user)
+            return UserProfile.objects.filter(user=user).select_related('user').prefetch_related('achievements')
 
 
 class LeaderboardViewSet(viewsets.ReadOnlyModelViewSet):
     """
     ReadOnly ViewSet для отображения таблицы лидеров.
     """
-    queryset = Leaderboard.objects.all().order_by('rank')
+    queryset = Leaderboard.objects.select_related('user_profile__user').all().order_by('rank')
     serializer_class = LeaderboardSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['user_profile__user__username']
+    ordering_fields = ['rank']
+    ordering = ['rank']
 
 
 class NotificationViewSet(viewsets.ModelViewSet):
     """
     ViewSet для управления уведомлениями.
     """
-    queryset = Notification.objects.all()
+    queryset = Notification.objects.select_related('user').all()
     serializer_class = NotificationSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['message']
+    ordering_fields = ['created_at', 'is_read']
+    ordering = ['-created_at']
 
     def get_queryset(self):
         """
-        Пользователи видят только свои уведомления.
-        Админы видят все уведомления.
+        - Админы видят все уведомления.
+        - Остальные пользователи видят только свои уведомления.
         """
         user = self.request.user
         if user.is_staff:
-            return Notification.objects.all()
-        return Notification.objects.filter(user=user)
+            return Notification.objects.all().select_related('user')
+        return Notification.objects.filter(user=user).select_related('user')
 
     def perform_create(self, serializer):
         """
@@ -388,15 +495,14 @@ class NotificationViewSet(viewsets.ModelViewSet):
 
 
 @api_view(['POST'])
-@permission_classes([permissions.AllowAny])
+@permission_classes([permissions.IsAuthenticated])
 def logout_view(request):
     """
-    Logout пользователя: удаление токена.
+    Выход пользователя: удаление токена.
     """
     try:
         token = Token.objects.get(user=request.user)
         token.delete()
-        return Response(status=status.HTTP_200_OK)
+        return Response({"success": "Токен успешно удалён."}, status=status.HTTP_200_OK)
     except Token.DoesNotExist:
-        return Response(status=status.HTTP_400_BAD_REQUEST)
-# Create your views here.
+        return Response({"error": "Токен не найден."}, status=status.HTTP_400_BAD_REQUEST)
