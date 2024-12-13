@@ -20,4 +20,5 @@ dj-database-url
 PyJWT==2.9.0
 celery[redis]
 redis
-django-filters
+django-filter
+
