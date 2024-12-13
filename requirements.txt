@@ -8,7 +8,7 @@ geopy==2.4.0
 gunicorn
 # Optional (if needed for environment management)
 python-dotenv==1.0.1
-
+django-celery-beat
 # For handling Excel files, if explicitly required
 openpyxl==3.1.5
 
