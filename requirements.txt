@@ -5,7 +5,7 @@ drf-yasg==1.21.8
 whitenoise
 psycopg2-binary==2.9.10
 geopy==2.4.0
-
+gunicorn
 # Optional (if needed for environment management)
 python-dotenv==1.0.1
 
