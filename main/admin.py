@@ -2,25 +2,16 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
 from .models import (
-    User,
-    Class,
-    Subject,
-    Schedule,
-    Homework,
-    SubmittedHomework,
-    Grade,
-    Attendance,
-    Achievement,
-    UserProfile,
-    UserAchievement,
-    Leaderboard,
-    Notification,
+    User, Class, Subject, Schedule, Homework, SubmittedHomework, Grade,
+    Attendance, Achievement, UserProfile, UserAchievement, Leaderboard, Notification
 )
 
-# Регистрация кастомной модели пользователя с расширенными полями
+
+# Custom User Admin
+@admin.register(User)
 class UserAdmin(BaseUserAdmin):
     """
-    Админ-панель для кастомной модели пользователя.
+    Admin panel for the custom User model.
     """
     fieldsets = (
         (None, {'fields': ('username', 'password')}),
@@ -43,28 +34,35 @@ class UserAdmin(BaseUserAdmin):
     ordering = ('username',)
 
 
-@admin.register(Class)
-class ClassAdmin(admin.ModelAdmin):
+# Base admin class for common list configurations
+class BaseAdmin(admin.ModelAdmin):
     """
-    Админ-панель для модели Class.
+    Base Admin class for common configurations.
+    """
+    search_fields = ('name',)
+    ordering = ('id',)
+
+
+@admin.register(Class)
+class ClassAdmin(BaseAdmin):
+    """
+    Admin panel for the Class model.
     """
     list_display = ('name',)
-    search_fields = ('name',)
 
 
 @admin.register(Subject)
-class SubjectAdmin(admin.ModelAdmin):
+class SubjectAdmin(BaseAdmin):
     """
-    Админ-панель для модели Subject.
+    Admin panel for the Subject model.
     """
     list_display = ('name',)
-    search_fields = ('name',)
 
 
 @admin.register(Schedule)
-class ScheduleAdmin(admin.ModelAdmin):
+class ScheduleAdmin(BaseAdmin):
     """
-    Админ-панель для модели Schedule.
+    Admin panel for the Schedule model.
     """
     list_display = ('class_obj', 'subject', 'teacher', 'weekday', 'start_time', 'end_time')
     list_filter = ('weekday', 'class_obj', 'subject', 'teacher')
@@ -72,9 +70,9 @@ class ScheduleAdmin(admin.ModelAdmin):
 
 
 @admin.register(Homework)
-class HomeworkAdmin(admin.ModelAdmin):
+class HomeworkAdmin(BaseAdmin):
     """
-    Админ-панель для модели Homework.
+    Admin panel for the Homework model.
     """
     list_display = ('subject', 'class_obj', 'due_date', 'created_at')
     list_filter = ('subject', 'class_obj', 'due_date')
@@ -82,21 +80,19 @@ class HomeworkAdmin(admin.ModelAdmin):
 
 
 @admin.register(SubmittedHomework)
-class SubmittedHomeworkAdmin(admin.ModelAdmin):
+class SubmittedHomeworkAdmin(BaseAdmin):
     """
-    Админ-панель для модели SubmittedHomework.
+    Admin panel for the SubmittedHomework model.
     """
     list_display = ('homework', 'student', 'submitted_at', 'status', 'grade')
     list_filter = ('status', 'homework__subject', 'homework__class_obj')
     search_fields = ('homework__subject__name', 'student__username')
 
-    # Опционально, вы можете добавить дополнительные методы или настройки здесь
-
 
 @admin.register(Grade)
-class GradeAdmin(admin.ModelAdmin):
+class GradeAdmin(BaseAdmin):
     """
-    Админ-панель для модели Grade.
+    Admin panel for the Grade model.
     """
     list_display = ('student', 'subject', 'grade', 'date', 'teacher')
     list_filter = ('subject', 'date', 'teacher')
@@ -104,9 +100,9 @@ class GradeAdmin(admin.ModelAdmin):
 
 
 @admin.register(Attendance)
-class AttendanceAdmin(admin.ModelAdmin):
+class AttendanceAdmin(BaseAdmin):
     """
-    Админ-панель для модели Attendance.
+    Admin panel for the Attendance model.
     """
     list_display = ('student', 'class_obj', 'date', 'status')
     list_filter = ('status', 'class_obj', 'date')
@@ -114,29 +110,28 @@ class AttendanceAdmin(admin.ModelAdmin):
 
 
 @admin.register(Achievement)
-class AchievementAdmin(admin.ModelAdmin):
+class AchievementAdmin(BaseAdmin):
     """
-    Админ-панель для модели Achievement.
+    Admin panel for the Achievement model.
     """
     list_display = ('name', 'xp_reward')
-    search_fields = ('name',)
     list_filter = ('xp_reward',)
 
 
 @admin.register(UserProfile)
-class UserProfileAdmin(admin.ModelAdmin):
+class UserProfileAdmin(BaseAdmin):
     """
-    Админ-панель для модели UserProfile.
+    Admin panel for the UserProfile model.
     """
     list_display = ('user', 'xp', 'level')
-    search_fields = ('user__username',)
     list_filter = ('level',)
+    search_fields = ('user__username',)
 
 
 @admin.register(UserAchievement)
-class UserAchievementAdmin(admin.ModelAdmin):
+class UserAchievementAdmin(BaseAdmin):
     """
-    Админ-панель для модели UserAchievement.
+    Admin panel for the UserAchievement model.
     """
     list_display = ('user_profile', 'achievement', 'achieved_at')
     list_filter = ('achieved_at', 'achievement')
@@ -144,33 +139,33 @@ class UserAchievementAdmin(admin.ModelAdmin):
 
 
 @admin.register(Leaderboard)
-class LeaderboardAdmin(admin.ModelAdmin):
+class LeaderboardAdmin(BaseAdmin):
     """
-    Админ-панель для модели Leaderboard.
+    Admin panel for the Leaderboard model.
     """
     list_display = ('user_profile', 'rank')
-    search_fields = ('user_profile__user__username',)
     ordering = ('rank',)
+    search_fields = ('user_profile__user__username',)
 
 
 @admin.register(Notification)
-class NotificationAdmin(admin.ModelAdmin):
+class NotificationAdmin(BaseAdmin):
     """
-    Админ-панель для модели Notification.
+    Admin panel for the Notification model.
     """
     list_display = ('user', 'message_snippet', 'created_at', 'is_read')
     list_filter = ('is_read', 'created_at')
     search_fields = ('user__username', 'message')
 
     def message_snippet(self, obj):
+        """
+        Display a snippet of the notification message.
+        """
         return obj.message[:50] + ('...' if len(obj.message) > 50 else '')
-    message_snippet.short_description = 'Сообщение'
+    message_snippet.short_description = 'Message Snippet'
 
 
-# Регистрация кастомной модели пользователя
-admin.site.register(User, UserAdmin)
-
-# Опционально, можно переименовать заголовок админки
-admin.site.site_header = "Админ-панель Школьного Приложения"
-admin.site.site_title = "Админ-панель"
-admin.site.index_title = "Добро пожаловать в админ-панель"
+# Admin panel customization
+admin.site.site_header = "School App Admin Panel"
+admin.site.site_title = "Admin Panel"
+admin.site.index_title = "Welcome to the Admin Panel"
