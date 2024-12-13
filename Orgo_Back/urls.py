@@ -26,12 +26,11 @@ schema_view = get_schema_view(
 
 urlpatterns = [
     # Админ-панель Django
-    
     path('admin/', admin.site.urls),
 
-    # Включаем маршруты приложения 'main'
+    # Включаем маршруты приложения 'main' с префиксом 'api/'
     path('api/', include('main.urls')),
-   
+
     # Маршруты для аутентификации через browsable API DRF
     path('api-auth/', include('rest_framework.urls', namespace='rest_framework')),
 
