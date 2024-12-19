@@ -44,12 +44,14 @@ MEDIA_ROOT = BASE_DIR / 'media'
 # Определение доверенных источников для CSRF
 CSRF_TRUSTED_ORIGINS = [
     'https://orgoback-production.up.railway.app',
+    "http://localhost:3000", 
     # Замените на домен вашего фронтенда, если применимо
 ]
 
 # Оптимизированная конфигурация CORS
 CORS_ALLOWED_ORIGINS = [
     'https://orgoback-production.up.railway.app',
+    "http://localhost:3000", 
     # Добавьте другие разрешённые источники, если необходимо
 ]
 
