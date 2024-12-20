@@ -219,27 +219,27 @@ class ScheduleViewSet(viewsets.ModelViewSet):
     search_fields = ['class_obj__name', 'subject__name', 'teacher__username']
     ordering_fields = ['weekday', 'start_time']
     ordering = ['weekday', 'start_time']
+    
+    def get_queryset(self):
+     user = self.request.user
+     logger.debug(f"Fetching schedules for user: {user.username} with role: {user.role}")
 
-  def get_queryset(self):
-    user = self.request.user
-    logger.debug(f"Fetching schedules for user: {user.username} with role: {user.role}")
-
-    if user.role == User.TEACHER:
+     if user.role == User.TEACHER:
         queryset = Schedule.objects.filter(teacher=user).select_related('class_obj', 'subject', 'teacher')
         logger.debug(f"Teacher schedules: {queryset}")
         return queryset
-    elif user.role == User.STUDENT:
+     elif user.role == User.STUDENT:
         class_objs = user.classes.all()
         queryset = Schedule.objects.filter(class_obj__in=class_objs).select_related('class_obj', 'subject', 'teacher')
         logger.debug(f"Student schedules: {queryset}")
         return queryset
-    elif user.role == User.PARENT:
+     elif user.role == User.PARENT:
         children = user.parent_relations.values_list('child', flat=True)
         class_objs = Class.objects.filter(students__in=children).distinct()
         queryset = Schedule.objects.filter(class_obj__in=class_objs).select_related('class_obj', 'subject', 'teacher')
         logger.debug(f"Parent schedules: {queryset}")
         return queryset
-    else:
+     else:
         logger.warning(f"Unknown role for user: {user.username}")
         return Schedule.objects.none()
 

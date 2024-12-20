@@ -25,7 +25,7 @@ def check_attendance():
 
             # Calculate distance
             distance = geodesic(student_coords, school_coords).kilometers
-            status = 'present' if distance <= 0.1 else 'absent'
+            status = 'present' if distance <= 0.1 else 'late'
 
             # Update or create attendance record
             Attendance.objects.update_or_create(
