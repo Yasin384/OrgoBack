@@ -220,31 +220,28 @@ class ScheduleViewSet(viewsets.ModelViewSet):
     ordering_fields = ['weekday', 'start_time']
     ordering = ['weekday', 'start_time']
 
-    def get_queryset(self):
-        """
-        Ограничение доступа:
-        - Учителя видят только свои расписания.
-        - Студенты и родители — расписания их классов.
-        """
-        user = self.request.user
-        if user.role == User.TEACHER:
-            queryset = Schedule.objects.filter(teacher=user).select_related('class_obj', 'subject', 'teacher')
-            logger.debug(f"Учитель {user.username} просматривает свои расписания.")
-            return queryset
-        elif user.role == User.STUDENT:
-            class_objs = user.classes.all()
-            queryset = Schedule.objects.filter(class_obj__in=class_objs).select_related('class_obj', 'subject', 'teacher')
-            logger.debug(f"Студент {user.username} просматривает расписания своих классов.")
-            return queryset
-        elif user.role == User.PARENT:
-            children = user.parent_relations.values_list('child', flat=True)
-            class_objs = Class.objects.filter(students__in=children).distinct()
-            queryset = Schedule.objects.filter(class_obj__in=class_objs).select_related('class_obj', 'subject', 'teacher')
-            logger.debug(f"Родитель {user.username} просматривает расписания своих детей.")
-            return queryset
-        else:
-            logger.warning(f"Пользователь {user.username} с неизвестной ролью пытается получить доступ к расписаниям.")
-            return Schedule.objects.none()
+  def get_queryset(self):
+    user = self.request.user
+    logger.debug(f"Fetching schedules for user: {user.username} with role: {user.role}")
+
+    if user.role == User.TEACHER:
+        queryset = Schedule.objects.filter(teacher=user).select_related('class_obj', 'subject', 'teacher')
+        logger.debug(f"Teacher schedules: {queryset}")
+        return queryset
+    elif user.role == User.STUDENT:
+        class_objs = user.classes.all()
+        queryset = Schedule.objects.filter(class_obj__in=class_objs).select_related('class_obj', 'subject', 'teacher')
+        logger.debug(f"Student schedules: {queryset}")
+        return queryset
+    elif user.role == User.PARENT:
+        children = user.parent_relations.values_list('child', flat=True)
+        class_objs = Class.objects.filter(students__in=children).distinct()
+        queryset = Schedule.objects.filter(class_obj__in=class_objs).select_related('class_obj', 'subject', 'teacher')
+        logger.debug(f"Parent schedules: {queryset}")
+        return queryset
+    else:
+        logger.warning(f"Unknown role for user: {user.username}")
+        return Schedule.objects.none()
 
 
 class HomeworkViewSet(viewsets.ModelViewSet):
