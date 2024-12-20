@@ -27,12 +27,13 @@ SECRET_KEY = 'django-insecure-7gx)4y4h2k1)0&&k(aaoo!ukb5j&%25$iwhz$rjk6jtislfw'
 DEBUG = True  # Установите в False для продакшен-среды
 
 # Разрешенные хосты
-ALLOWED_HOSTS = [
-    'orgoback-production.up.railway.app',
-    # Добавьте другие разрешённые хосты, например:
-    # 'example.com',
-]
+ALLOWED_HOSTS = ['*']
+CORS_ALLOW_ALL_ORIGINS = True
 
+CSRF_TRUSTED_ORIGINS = [
+    'https://orgoback-production.up.railway.app',
+'http://localhost:3000', # Add production frontend domain
+]
 # Настройка статических файлов
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
@@ -42,11 +43,6 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 # Определение доверенных источников для CSRF
-CSRF_TRUSTED_ORIGINS = [
-    'https://orgoback-production.up.railway.app',
-    "http://localhost:3000", 
-    # Замените на домен вашего фронтенда, если применимо
-]
 
 # Оптимизированная конфигурация CORS
 CORS_ALLOWED_ORIGINS = [
