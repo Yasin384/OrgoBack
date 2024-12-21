@@ -1,11 +1,3 @@
-from django.db import models
-from django.contrib.auth.models import AbstractUser
-from django.conf import settings
-from django.utils import timezone
-import uuid
-
-
-# Модель школы
 # main/models.py
 
 from django.db import models
@@ -13,6 +5,39 @@ from django.contrib.auth.models import AbstractUser
 from django.conf import settings
 from django.utils import timezone
 import uuid
+
+# Кастомная модель пользователя с различными ролями
+class User(AbstractUser):
+    """
+    Кастомная модель пользователя, расширяющая AbstractUser.
+    """
+    STUDENT = 'student'
+    TEACHER = 'teacher'
+    PARENT = 'parent'
+
+    ROLE_CHOICES = [
+        (STUDENT, 'Студент'),
+        (TEACHER, 'Учитель'),
+        (PARENT, 'Родитель'),
+    ]
+
+    role = models.CharField(
+        max_length=10,
+        choices=ROLE_CHOICES,
+        default=STUDENT,
+        help_text="Роль пользователя: студент, учитель или родитель."
+    )
+    school = models.ForeignKey(
+        'School',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='users',
+        help_text="Школа пользователя. Только для учителей и студентов."
+    )
+
+    def __str__(self):
+        return f"{self.username} ({self.get_role_display()})"
 
 # Модель школы
 class School(models.Model):
@@ -69,47 +94,8 @@ class School(models.Model):
     def __str__(self):
         return self.name
 
-# Кастомная модель пользователя с различными ролями
-class User(AbstractUser):
-    """
-    Кастомная модель пользователя, расширяющая AbstractUser.
-    """
-    STUDENT = 'student'
-    TEACHER = 'teacher'
-    PARENT = 'parent'
-
-    ROLE_CHOICES = [
-        (STUDENT, 'Студент'),
-        (TEACHER, 'Учитель'),
-        (PARENT, 'Родитель'),
-    ]
-
-    role = models.CharField(
-        max_length=10,
-        choices=ROLE_CHOICES,
-        default=STUDENT,
-        help_text="Роль пользователя: студент, учитель или родитель."
-    )
-    school = models.ForeignKey(
-        School,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name='users',
-        help_text="Школа пользователя. Только для учителей и студентов."
-    )
-    name = models.CharField(
-        max_length=255,
-        default='Guest',
-        help_text="Имя пользователя."
-    )
-
-    def __str__(self):
-        return f"{self.username} ({self.get_role_display()})"
-
-
-# Модель класса
-class Class(models.Model):
+# Модель класса (переименована в SchoolClass)
+class SchoolClass(models.Model):
     """
     Модель класса.
     """
@@ -117,6 +103,12 @@ class Class(models.Model):
         max_length=100,
         unique=True,
         help_text="Название класса, например, 5А."
+    )
+    school = models.ForeignKey(
+        School,
+        on_delete=models.CASCADE,
+        related_name='classes',
+        help_text="Школа, к которой принадлежит класс."
     )
     students = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
@@ -130,10 +122,14 @@ class Class(models.Model):
         limit_choices_to={'role': User.TEACHER},
         help_text="Учителя, ведущие класс."
     )
+    subjects = models.ManyToManyField(
+        'Subject',
+        related_name='classes',
+        help_text="Предметы, преподаваемые в классе."
+    )
 
     def __str__(self):
         return self.name
-
 
 # Модель предмета
 class Subject(models.Model):
@@ -150,6 +146,86 @@ class Subject(models.Model):
     def __str__(self):
         return self.name
 
+# Промежуточная модель для связи Студент-Учитель
+class StudentTeacher(models.Model):
+    """
+    Модель для связи студентов с учителями (например, наставники).
+    """
+    student = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='student_teacher_relations',
+        limit_choices_to={'role': User.STUDENT},
+        help_text="Студент."
+    )
+    teacher = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='teacher_student_relations',
+        limit_choices_to={'role': User.TEACHER},
+        help_text="Учитель."
+    )
+    school_class = models.ForeignKey(
+        SchoolClass,
+        on_delete=models.CASCADE,
+        related_name='student_teacher_relations',
+        help_text="Класс, в котором установлены отношения.",
+        null=True,    # Allow nulls temporarily
+        blank=True,
+    )
+    relationship = models.CharField(
+        max_length=50,
+        help_text="Тип отношений, например, наставник."
+    )
+    established_date = models.DateField(
+        default=timezone.now,
+        help_text="Дата установления отношений."
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['student', 'teacher', 'school_class'], name='unique_student_teacher_class')
+        ]
+
+    def __str__(self):
+        return f"{self.teacher.username} -> {self.student.username} ({self.relationship})"
+
+# Модель родитель-ребёнок
+class ParentChild(models.Model):
+    """
+    Модель для связи родителей с их детьми (студентами).
+    """
+    parent = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='children_relations',
+        limit_choices_to={'role': User.PARENT},
+        help_text="Родитель."
+    )
+    child = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='parent_relations',
+        limit_choices_to={'role': User.STUDENT},
+        help_text="Ребёнок."
+    )
+    school_class = models.ForeignKey(
+        SchoolClass,
+        on_delete=models.CASCADE,
+        related_name='parent_child_relations',
+        help_text="Класс ребенка.",
+        default=1,  # Default to existing SchoolClass ID
+        null=False,  # Non-nullable
+        blank=False
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['parent', 'child', 'school_class'], name='unique_parent_child_class')
+        ]
+
+    def __str__(self):
+        return f"{self.parent.username} -> {self.child.username} in {self.school_class.name}"
 
 # Модель расписания занятий
 class Schedule(models.Model):
@@ -166,11 +242,13 @@ class Schedule(models.Model):
         (7, 'Воскресенье'),
     ]
 
-    class_obj = models.ForeignKey(
-        Class,
+    school_class = models.ForeignKey(
+        SchoolClass,
         on_delete=models.CASCADE,
         related_name='schedules',
-        help_text="Класс, для которого расписание."
+        help_text="Класс, для которого расписание.",
+        null=True,    # Allow nulls temporarily
+        blank=True,
     )
     subject = models.ForeignKey(
         Subject,
@@ -198,12 +276,13 @@ class Schedule(models.Model):
     )
 
     class Meta:
-        unique_together = ('class_obj', 'subject', 'weekday', 'start_time')
-        ordering = ['class_obj', 'weekday', 'start_time']
+        constraints = [
+            models.UniqueConstraint(fields=['school_class', 'subject', 'weekday', 'start_time'], name='unique_schedule')
+        ]
+        ordering = ['school_class', 'weekday', 'start_time']
 
     def __str__(self):
-        return f"{self.class_obj} - {self.subject} - {self.get_weekday_display()} {self.start_time}-{self.end_time}"
-
+        return f"{self.school_class} - {self.subject} - {self.get_weekday_display()} {self.start_time}-{self.end_time}"
 
 # Модель домашнего задания
 class Homework(models.Model):
@@ -222,11 +301,14 @@ class Homework(models.Model):
         related_name='homeworks',
         help_text="Предмет, к которому относится задание."
     )
-    class_obj = models.ForeignKey(
-        Class,
+    school_class = models.ForeignKey(
+        SchoolClass,
         on_delete=models.CASCADE,
         related_name='homeworks',
-        help_text="Класс, для которого задано домашнее задание."
+        help_text="Класс, для которого задано домашнее задание.",
+        default=1,  # Default to existing SchoolClass ID
+        null=False,  # Non-nullable
+        blank=False
     )
     description = models.TextField(
         help_text="Описание домашнего задания.",
@@ -241,8 +323,7 @@ class Homework(models.Model):
     )
 
     def __str__(self):
-        return f"Домашнее задание по {self.subject} для {self.class_obj}"
-
+        return f"Домашнее задание по {self.subject} для {self.school_class}"
 
 # Модель отправленного домашнего задания
 class SubmittedHomework(models.Model):
@@ -295,11 +376,12 @@ class SubmittedHomework(models.Model):
     )
 
     class Meta:
-        unique_together = ('homework', 'student')
+        constraints = [
+            models.UniqueConstraint(fields=['homework', 'student'], name='unique_homework_submission')
+        ]
 
     def __str__(self):
         return f"{self.student} - {self.homework}"
-
 
 # Модель оценок
 class Grade(models.Model):
@@ -345,7 +427,6 @@ class Grade(models.Model):
     def __str__(self):
         return f"{self.student} - {self.subject} - {self.grade}"
 
-
 # Модель посещаемости
 class Attendance(models.Model):
     """
@@ -364,11 +445,14 @@ class Attendance(models.Model):
         related_name='attendances',
         help_text="Студент."
     )
-    class_obj = models.ForeignKey(
-        Class,
+    school_class = models.ForeignKey(
+        SchoolClass,
         on_delete=models.CASCADE,
         related_name='attendances',
-        help_text="Класс студента."
+        help_text="Класс студента.",
+        default=1,  # Default to existing SchoolClass ID
+        null=False,  # Non-nullable
+        blank=False
     )
     school = models.ForeignKey(
         School,
@@ -395,38 +479,12 @@ class Attendance(models.Model):
     )
 
     class Meta:
-        unique_together = ('student', 'date')
+        constraints = [
+            models.UniqueConstraint(fields=['student', 'date'], name='unique_attendance')
+        ]
 
     def __str__(self):
         return f"{self.student} - {self.date} - {self.get_status_display()}"
-
-
-# Модель родитель-ребёнок
-class ParentChild(models.Model):
-    """
-    Модель для связи родителей с их детьми (студентами).
-    """
-    parent = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='children_relations',
-        limit_choices_to={'role': User.PARENT},
-        help_text="Родитель."
-    )
-    child = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name='parent_relations',
-        limit_choices_to={'role': User.STUDENT},
-        help_text="Ребёнок."
-    )
-
-    class Meta:
-        unique_together = ('parent', 'child')
-
-    def __str__(self):
-        return f"{self.parent.username} -> {self.child.username}"
-
 
 # Модель достижений
 class Achievement(models.Model):
@@ -457,7 +515,6 @@ class Achievement(models.Model):
     def __str__(self):
         return self.name
 
-
 # Модель профиля пользователя для геймификации
 class UserProfile(models.Model):
     """
@@ -482,7 +539,6 @@ class UserProfile(models.Model):
     def __str__(self):
         return f"{self.user.username} - Профиль"
 
-
 # Модель связи пользователь-достижение
 class UserAchievement(models.Model):
     """
@@ -506,11 +562,12 @@ class UserAchievement(models.Model):
     )
 
     class Meta:
-        unique_together = ('user_profile', 'achievement')
+        constraints = [
+            models.UniqueConstraint(fields=['user_profile', 'achievement'], name='unique_user_achievement')
+        ]
 
     def __str__(self):
         return f"{self.user_profile.user.username} - {self.achievement.name}"
-
 
 # Модель таблицы лидеров
 class Leaderboard(models.Model):
@@ -531,7 +588,6 @@ class Leaderboard(models.Model):
 
     def __str__(self):
         return f"{self.user_profile.user.username} - Rank {self.rank}"
-
 
 # Модель уведомлений
 class Notification(models.Model):

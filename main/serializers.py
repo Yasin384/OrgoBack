@@ -3,10 +3,11 @@
 from rest_framework import serializers
 from django.contrib.auth import get_user_model
 from .models import (
-    Class, Subject, Schedule, Homework, SubmittedHomework,
+    SchoolClass, Subject, Schedule, Homework, SubmittedHomework,
     Grade, Attendance, Achievement, UserProfile,
-    UserAchievement, Leaderboard, Notification
+    UserAchievement, Leaderboard, Notification, StudentTeacher
 )
+from geopy.distance import geodesic
 
 # Получаем кастомную модель пользователя
 User = get_user_model()
@@ -38,13 +39,29 @@ class UserSerializer(serializers.ModelSerializer):
         return user
 
 
-class ClassSerializer(serializers.ModelSerializer):
+class SchoolClassSerializer(serializers.ModelSerializer):
     """
-    Сериализатор для модели Class.
+    Сериализатор для модели SchoolClass.
     """
+    teachers = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=User.objects.filter(role=User.TEACHER),
+        required=False
+    )
+    students = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=User.objects.filter(role=User.STUDENT),
+        required=False
+    )
+    subjects = serializers.PrimaryKeyRelatedField(
+        many=True,
+        queryset=Subject.objects.all(),
+        required=False
+    )
+
     class Meta:
-        model = Class
-        fields = ['id', 'name']
+        model = SchoolClass
+        fields = ['id', 'name', 'teachers', 'students', 'subjects']
 
 
 class SubjectSerializer(serializers.ModelSerializer):
@@ -56,18 +73,57 @@ class SubjectSerializer(serializers.ModelSerializer):
         fields = ['id', 'name']
 
 
+class StudentTeacherSerializer(serializers.ModelSerializer):
+    """
+    Сериализатор для модели StudentTeacher.
+    """
+    student = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(role=User.STUDENT)
+    )
+    teacher = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(role=User.TEACHER)
+    )
+
+    class Meta:
+        model = StudentTeacher
+        fields = ['id', 'student', 'teacher', 'relationship', 'established_date']
+        validators = [
+            serializers.UniqueTogetherValidator(
+                queryset=StudentTeacher.objects.all(),
+                fields=['student', 'teacher'],
+                message="This student-teacher relationship already exists."
+            )
+        ]
+
+
 class ScheduleSerializer(serializers.ModelSerializer):
     """
     Сериализатор для модели Schedule.
     Включает вложенные сериализаторы для класса, предмета и учителя.
     """
-    class_obj = ClassSerializer(read_only=True)
-    subject = SubjectSerializer(read_only=True)
-    teacher = UserSerializer(read_only=True)
+    school_class = serializers.PrimaryKeyRelatedField(
+        queryset=SchoolClass.objects.all()
+    )
+    subject = serializers.PrimaryKeyRelatedField(
+        queryset=Subject.objects.all()
+    )
+    teacher = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(role=User.TEACHER)
+    )
 
     class Meta:
         model = Schedule
-        fields = ['id', 'class_obj', 'subject', 'teacher', 'weekday', 'start_time', 'end_time']
+        fields = ['id', 'school_class', 'subject', 'teacher', 'weekday', 'start_time', 'end_time']
+
+    def to_representation(self, instance):
+        """
+        Customize representation to include nested data.
+        """
+        representation = super().to_representation(instance)
+        representation['school_class'] = SchoolClassSerializer(instance.school_class).data
+        representation['subject'] = SubjectSerializer(instance.subject).data
+        representation['teacher'] = UserSerializer(instance.teacher).data
+        return representation
 
 
 class HomeworkSerializer(serializers.ModelSerializer):
@@ -75,12 +131,25 @@ class HomeworkSerializer(serializers.ModelSerializer):
     Сериализатор для модели Homework.
     Включает вложенные сериализаторы для предмета и класса.
     """
-    subject = SubjectSerializer(read_only=True)
-    class_obj = ClassSerializer(read_only=True)
+    school_class = serializers.PrimaryKeyRelatedField(
+        queryset=SchoolClass.objects.all()
+    )
+    subject = serializers.PrimaryKeyRelatedField(
+        queryset=Subject.objects.all()
+    )
 
     class Meta:
         model = Homework
-        fields = ['id', 'subject', 'class_obj', 'description', 'due_date', 'created_at']
+        fields = ['id', 'subject', 'school_class', 'description', 'due_date', 'created_at']
+
+    def to_representation(self, instance):
+        """
+        Customize representation to include nested data.
+        """
+        representation = super().to_representation(instance)
+        representation['subject'] = SubjectSerializer(instance.subject).data
+        representation['school_class'] = SchoolClassSerializer(instance.school_class).data
+        return representation
 
 
 class SubmittedHomeworkSerializer(serializers.ModelSerializer):
@@ -88,8 +157,12 @@ class SubmittedHomeworkSerializer(serializers.ModelSerializer):
     Сериализатор для модели SubmittedHomework.
     Включает вложенные сериализаторы для домашнего задания и студента.
     """
-    homework = HomeworkSerializer(read_only=True)
-    student = UserSerializer(read_only=True)
+    homework = serializers.PrimaryKeyRelatedField(
+        queryset=Homework.objects.all()
+    )
+    student = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(role=User.STUDENT)
+    )
 
     class Meta:
         model = SubmittedHomework
@@ -98,19 +171,44 @@ class SubmittedHomeworkSerializer(serializers.ModelSerializer):
             'submitted_at', 'status', 'grade', 'feedback'
         ]
 
+    def to_representation(self, instance):
+        """
+        Customize representation to include nested data.
+        """
+        representation = super().to_representation(instance)
+        representation['homework'] = HomeworkSerializer(instance.homework).data
+        representation['student'] = UserSerializer(instance.student).data
+        return representation
+
 
 class GradeSerializer(serializers.ModelSerializer):
     """
     Сериализатор для модели Grade.
     Включает вложенные сериализаторы для студента, предмета и учителя.
     """
-    student = UserSerializer(read_only=True)
-    subject = SubjectSerializer(read_only=True)
-    teacher = UserSerializer(read_only=True)
+    student = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(role=User.STUDENT)
+    )
+    subject = serializers.PrimaryKeyRelatedField(
+        queryset=Subject.objects.all()
+    )
+    teacher = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(role=User.TEACHER)
+    )
 
     class Meta:
         model = Grade
         fields = ['id', 'student', 'subject', 'grade', 'date', 'teacher', 'comments']
+
+    def to_representation(self, instance):
+        """
+        Customize representation to include nested data.
+        """
+        representation = super().to_representation(instance)
+        representation['student'] = UserSerializer(instance.student).data
+        representation['subject'] = SubjectSerializer(instance.subject).data
+        representation['teacher'] = UserSerializer(instance.teacher).data
+        return representation
 
 
 class AttendanceSerializer(serializers.ModelSerializer):
@@ -118,21 +216,25 @@ class AttendanceSerializer(serializers.ModelSerializer):
     Сериализатор для модели Attendance.
     Включает вложенные сериализаторы для студента и класса.
     """
-    student = UserSerializer(read_only=True)
-    class_obj = ClassSerializer(read_only=True)
-    latitude = serializers.DecimalField(max_digits=9, decimal_places=6, required=False)
-    longitude = serializers.DecimalField(max_digits=9, decimal_places=6, required=False)
+    student = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(role=User.STUDENT)
+    )
+    school_class = serializers.PrimaryKeyRelatedField(
+        queryset=SchoolClass.objects.all()
+    )
 
     class Meta:
         model = Attendance
-        fields = ['id', 'student', 'class_obj', 'date', 'status', 'latitude', 'longitude', 'notes']
+        fields = ['id', 'student', 'school_class', 'date', 'status', 'latitude', 'longitude', 'notes']
+
     def validate(self, data):
         """
         Validate that latitude and longitude are provided if attendance is being marked.
         """
+        request = self.context.get('request')
         if 'latitude' in data and 'longitude' in data:
-            school = self.context['request'].user.school
-            if not school:
+            school = request.user.school
+            if not school or not school.latitude or not school.longitude:
                 raise serializers.ValidationError("School coordinates are not set for this user.")
             # Validate proximity to the school (e.g., within 100 meters)
             valid = self.is_within_school_proximity(
@@ -145,11 +247,21 @@ class AttendanceSerializer(serializers.ModelSerializer):
         """
         Check if the distance between two coordinates is within a given radius (default: ~100 meters).
         """
-        from geopy.distance import geodesic
         student_coords = (lat1, lon1)
         school_coords = (lat2, lon2)
         distance = geodesic(student_coords, school_coords).kilometers
         return distance <= radius
+
+    def to_representation(self, instance):
+        """
+        Customize representation to include nested data.
+        """
+        representation = super().to_representation(instance)
+        representation['student'] = UserSerializer(instance.student).data
+        representation['school_class'] = SchoolClassSerializer(instance.school_class).data
+        return representation
+
+
 class AchievementSerializer(serializers.ModelSerializer):
     """
     Сериализатор для модели Achievement.
@@ -164,12 +276,32 @@ class UserAchievementSerializer(serializers.ModelSerializer):
     Сериализатор для модели UserAchievement.
     Включает вложенные сериализаторы для профиля пользователя и достижения.
     """
-    user_profile = serializers.StringRelatedField()
-    achievement = AchievementSerializer(read_only=True)
+    user_profile = serializers.PrimaryKeyRelatedField(
+        queryset=UserProfile.objects.all()
+    )
+    achievement = serializers.PrimaryKeyRelatedField(
+        queryset=Achievement.objects.all()
+    )
 
     class Meta:
         model = UserAchievement
         fields = ['id', 'user_profile', 'achievement', 'achieved_at']
+        validators = [
+            serializers.UniqueTogetherValidator(
+                queryset=UserAchievement.objects.all(),
+                fields=['user_profile', 'achievement'],
+                message="This achievement is already assigned to the user."
+            )
+        ]
+
+    def to_representation(self, instance):
+        """
+        Customize representation to include nested data.
+        """
+        representation = super().to_representation(instance)
+        representation['user_profile'] = UserProfileSerializer(instance.user_profile).data
+        representation['achievement'] = AchievementSerializer(instance.achievement).data
+        return representation
 
 
 class UserProfileSerializer(serializers.ModelSerializer):

@@ -1,10 +1,13 @@
 # main/views.py
 
 import logging
+import datetime
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from django.utils.timezone import localtime, now
 from django.conf import settings
+from django.db.models import Prefetch, Sum, Count, Avg, Q
+from django.core.cache import cache
 
 from rest_framework import viewsets, permissions, status, filters
 from rest_framework.response import Response
@@ -13,67 +16,65 @@ from rest_framework.authtoken.models import Token
 from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.views import APIView
 from rest_framework.pagination import PageNumberPagination
+from rest_framework.throttling import UserRateThrottle
 
-from geopy.distance import geodesic  # Для расчёта расстояний
+from geopy.distance import geodesic  # For distance calculations
 
 from .models import (
-    Class, Subject, Schedule, Homework, SubmittedHomework,
+    SchoolClass, Subject, Schedule, Homework, SubmittedHomework,
     Grade, Attendance, Achievement, UserProfile,
-    UserAchievement, Leaderboard, Notification
+    UserAchievement, Leaderboard, Notification, StudentTeacher
 )
 from .serializers import (
-    UserSerializer, ClassSerializer, SubjectSerializer, ScheduleSerializer,
+    UserSerializer, SchoolClassSerializer, SubjectSerializer, ScheduleSerializer,
     HomeworkSerializer, SubmittedHomeworkSerializer, GradeSerializer,
     AttendanceSerializer, AchievementSerializer, UserProfileSerializer,
     UserAchievementSerializer, LeaderboardSerializer, NotificationSerializer,
-    UserRegistrationSerializer
+    UserRegistrationSerializer, StudentTeacherSerializer
 )
-
-import datetime
 
 User = get_user_model()
 
-# Получаем логгер для текущего модуля
+# Initialize logger
 logger = logging.getLogger(__name__)
 
-
-# Кастомные классы разрешений
+# Custom permission classes
 class IsTeacher(permissions.BasePermission):
     """
-    Разрешение только для учителей.
+    Permission only for teachers.
     """
     def has_permission(self, request, view):
-        return request.user.role == User.TEACHER
+        return request.user.is_authenticated and request.user.role == User.TEACHER
 
 
 class IsStudent(permissions.BasePermission):
     """
-    Разрешение только для студентов.
+    Permission only for students.
     """
     def has_permission(self, request, view):
-        return request.user.role == User.STUDENT
+        return request.user.is_authenticated and request.user.role == User.STUDENT
 
 
 class IsParent(permissions.BasePermission):
     """
-    Разрешение только для родителей.
+    Permission only for parents.
     """
     def has_permission(self, request, view):
-        return request.user.role == User.PARENT
+        return request.user.is_authenticated and request.user.role == User.PARENT
 
 
-# Настройка времени истечения токена (24 часа)
+# Token expiration settings
 TOKEN_EXPIRATION_TIME = datetime.timedelta(hours=24)
 
 
 def token_is_expired(token):
     """
-    Проверяет, истёк ли токен.
+    Checks if the token has expired.
     """
     return timezone.now() > token.created + TOKEN_EXPIRATION_TIME
 
 
-# Пагинатор по умолчанию
+# Default paginator
 class StandardResultsSetPagination(PageNumberPagination):
     page_size = 10
     page_size_query_param = 'page_size'
@@ -82,33 +83,37 @@ class StandardResultsSetPagination(PageNumberPagination):
 
 class UserMeView(APIView):
     """
-    Представление для получения информации о текущем пользователе.
+    View for retrieving information about the current user.
     """
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         try:
-            user_serializer = UserSerializer(request.user)
+            user = request.user
+            user_serializer = UserSerializer(user)
             try:
-                user_profile_serializer = UserProfileSerializer(request.user.profile)
+                user_profile = user.profile
+                user_profile_serializer = UserProfileSerializer(user_profile)
             except UserProfile.DoesNotExist:
                 user_profile_serializer = None
-                logger.warning(f"Пользователь {request.user.username} не имеет UserProfile.")
+                logger.warning(f"User {user.username} does not have a UserProfile.")
+            
             response_data = user_serializer.data
             if user_profile_serializer:
                 response_data.update(user_profile_serializer.data)
             else:
-                response_data.update({"profile": "Профиль не найден."})
-            logger.info(f"Пользователь {request.user.username} получил информацию о себе.")
+                response_data.update({"profile": "Profile not found."})
+            
+            logger.info(f"User {user.username} retrieved their information.")
             return Response(response_data)
         except Exception as e:
-            logger.error(f"Ошибка при обработке запроса /api/me/ для пользователя {request.user.username}: {e}")
-            return Response({"error": "Не удалось получить информацию о пользователе."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error(f"Error processing /api/me/ request for user {request.user.username}: {e}")
+            return Response({"error": "Failed to retrieve user information."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class UserViewSet(viewsets.ModelViewSet):
     """
-    ViewSet для управления пользователями.
+    ViewSet for managing users.
     """
     queryset = User.objects.all()
     serializer_class = UserSerializer
@@ -122,29 +127,29 @@ class UserViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'], permission_classes=[permissions.AllowAny])
     def register(self, request):
         """
-        Регистрация нового пользователя.
+        Register a new user.
         """
         serializer = UserRegistrationSerializer(data=request.data)
         if serializer.is_valid():
             try:
                 user = serializer.save()
                 token, created = Token.objects.get_or_create(user=user)
-                logger.info(f"Зарегистрирован новый пользователь: {user.username}")
+                logger.info(f"New user registered: {user.username}")
                 return Response({
                     'token': token.key,
                     'user': UserSerializer(user).data
                 }, status=status.HTTP_201_CREATED)
             except Exception as e:
-                logger.error(f"Ошибка при регистрации пользователя: {e}")
-                return Response({"error": "Не удалось зарегистрировать пользователя."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                logger.error(f"Error registering user: {e}")
+                return Response({"error": "Failed to register user."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         else:
-            logger.warning(f"Некорректные данные при регистрации пользователя: {serializer.errors}")
+            logger.warning(f"Invalid registration data: {serializer.errors}")
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class CustomObtainAuthToken(ObtainAuthToken):
     """
-    Кастомный ObtainAuthToken для добавления проверки истечения токена.
+    Custom ObtainAuthToken to add token expiration check.
     """
     def post(self, request, *args, **kwargs):
         serializer = self.serializer_class(data=request.data,
@@ -154,21 +159,21 @@ class CustomObtainAuthToken(ObtainAuthToken):
         token, created = Token.objects.get_or_create(user=user)
 
         if not created and token_is_expired(token):
-            logger.info(f"Токен пользователя {user.username} истёк и создаётся новый.")
+            logger.info(f"Token for user {user.username} expired. Creating a new token.")
             token.delete()
             token = Token.objects.create(user=user)
         else:
-            logger.info(f"Токен пользователя {user.username} получен.")
+            logger.info(f"Token retrieved for user {user.username}.")
 
         return Response({'token': token.key})
 
 
-class ClassViewSet(viewsets.ModelViewSet):
+class SchoolClassViewSet(viewsets.ModelViewSet):
     """
-    ViewSet для управления классами.
+    ViewSet for managing school classes.
     """
-    queryset = Class.objects.all()
-    serializer_class = ClassSerializer
+    queryset = SchoolClass.objects.all().prefetch_related('teachers', 'students', 'subjects')
+    serializer_class = SchoolClassSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = StandardResultsSetPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
@@ -178,16 +183,37 @@ class ClassViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         try:
-            class_obj = serializer.save()
-            logger.info(f"Создан новый класс: {class_obj.name}")
+            school_class = serializer.save()
+            logger.info(f"Created new class: {school_class.name}")
         except Exception as e:
-            logger.error(f"Ошибка при создании класса: {e}")
+            logger.error(f"Error creating class: {e}")
             raise e
+
+    def get_queryset(self):
+        """
+        Optionally restricts the returned classes based on the user's role.
+        """
+        user = self.request.user
+        if user.role == User.TEACHER:
+            queryset = SchoolClass.objects.filter(teachers=user).prefetch_related('teachers', 'students', 'subjects')
+            logger.debug(f"Teacher {user.username} accessing their classes.")
+            return queryset
+        elif user.role == User.STUDENT:
+            queryset = SchoolClass.objects.filter(students=user).prefetch_related('teachers', 'students', 'subjects')
+            logger.debug(f"Student {user.username} accessing their classes.")
+            return queryset
+        elif user.role == User.PARENT:
+            queryset = SchoolClass.objects.filter(students__parent_relations__parent=user).distinct().prefetch_related('teachers', 'students', 'subjects')
+            logger.debug(f"Parent {user.username} accessing their children's classes.")
+            return queryset
+        else:
+            logger.warning(f"User {user.username} with unknown role trying to access classes.")
+            return SchoolClass.objects.none()
 
 
 class SubjectViewSet(viewsets.ModelViewSet):
     """
-    ViewSet для управления предметами.
+    ViewSet for managing subjects.
     """
     queryset = Subject.objects.all()
     serializer_class = SubjectSerializer
@@ -201,74 +227,96 @@ class SubjectViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         try:
             subject = serializer.save()
-            logger.info(f"Создан новый предмет: {subject.name}")
+            logger.info(f"Created new subject: {subject.name}")
         except Exception as e:
-            logger.error(f"Ошибка при создании предмета: {e}")
+            logger.error(f"Error creating subject: {e}")
             raise e
 
 
 class ScheduleViewSet(viewsets.ModelViewSet):
     """
-    ViewSet для управления расписанием занятий.
+    ViewSet for managing schedules.
     """
-    queryset = Schedule.objects.select_related('class_obj', 'subject', 'teacher').all()
+    queryset = Schedule.objects.select_related('school_class', 'subject', 'teacher').all()
     serializer_class = ScheduleSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = StandardResultsSetPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['class_obj__name', 'subject__name', 'teacher__username']
+    search_fields = ['school_class__name', 'subject__name', 'teacher__username']
     ordering_fields = ['weekday', 'start_time']
     ordering = ['weekday', 'start_time']
-    
-    def get_queryset(self):
-     user = self.request.user
-     logger.debug(f"Fetching schedules for user: {user.username} with role: {user.role}")
 
-     if user.role == User.TEACHER:
-        queryset = Schedule.objects.filter(teacher=user).select_related('class_obj', 'subject', 'teacher')
-        logger.debug(f"Teacher schedules: {queryset}")
-        return queryset
-     elif user.role == User.STUDENT:
-        class_objs = user.classes.all()
-        queryset = Schedule.objects.filter(class_obj__in=class_objs).select_related('class_obj', 'subject', 'teacher')
-        logger.debug(f"Student schedules: {queryset}")
-        return queryset
-     elif user.role == User.PARENT:
-        children = user.parent_relations.values_list('child', flat=True)
-        class_objs = Class.objects.filter(students__in=children).distinct()
-        queryset = Schedule.objects.filter(class_obj__in=class_objs).select_related('class_obj', 'subject', 'teacher')
-        logger.debug(f"Parent schedules: {queryset}")
-        return queryset
-     else:
-        logger.warning(f"Unknown role for user: {user.username}")
-        return Schedule.objects.none()
+    def get_queryset(self):
+        user = self.request.user
+        logger.debug(f"Fetching schedules for user: {user.username} with role: {user.role}")
+
+        if user.role == User.TEACHER:
+            queryset = Schedule.objects.filter(teacher=user).select_related('school_class', 'subject', 'teacher')
+            logger.debug(f"Teacher {user.username} schedules: {queryset}")
+            return queryset
+        elif user.role == User.STUDENT:
+            class_objs = user.classes.all()
+            queryset = Schedule.objects.filter(school_class__in=class_objs).select_related('school_class', 'subject', 'teacher')
+            logger.debug(f"Student {user.username} schedules: {queryset}")
+            return queryset
+        elif user.role == User.PARENT:
+            children = user.parent_relations.values_list('child', flat=True)
+            class_objs = SchoolClass.objects.filter(students__in=children).distinct()
+            queryset = Schedule.objects.filter(school_class__in=class_objs).select_related('school_class', 'subject', 'teacher')
+            logger.debug(f"Parent {user.username} schedules: {queryset}")
+            return queryset
+        else:
+            logger.warning(f"Unknown role for user: {user.username}")
+            return Schedule.objects.none()
 
 
 class HomeworkViewSet(viewsets.ModelViewSet):
     """
-    ViewSet для управления домашними заданиями.
+    ViewSet for managing homework.
     """
-    queryset = Homework.objects.select_related('subject', 'class_obj').all()
+    queryset = Homework.objects.select_related('subject', 'school_class').all()
     serializer_class = HomeworkSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = StandardResultsSetPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['subject__name', 'class_obj__name', 'description']
+    search_fields = ['subject__name', 'school_class__name', 'description']
     ordering_fields = ['due_date', 'created_at']
     ordering = ['due_date']
 
     def perform_create(self, serializer):
         try:
             homework = serializer.save()
-            logger.info(f"Создано домашнее задание: {homework.description} для класса {homework.class_obj.name}")
+            logger.info(f"Created homework: {homework.description} for class {homework.school_class.name}")
         except Exception as e:
-            logger.error(f"Ошибка при создании домашнего задания: {e}")
+            logger.error(f"Error creating homework: {e}")
             raise e
+
+    def get_queryset(self):
+        """
+        Optionally restricts the returned homework based on the user's role.
+        """
+        user = self.request.user
+        if user.role == User.TEACHER:
+            queryset = Homework.objects.filter(subject__in=user.teaching_subjects.all()).select_related('subject', 'school_class')
+            logger.debug(f"Teacher {user.username} accessing homework for their subjects.")
+            return queryset
+        elif user.role == User.STUDENT:
+            queryset = Homework.objects.filter(school_class__in=user.classes.all()).select_related('subject', 'school_class')
+            logger.debug(f"Student {user.username} accessing homework for their classes.")
+            return queryset
+        elif user.role == User.PARENT:
+            children = user.parent_relations.values_list('child', flat=True)
+            queryset = Homework.objects.filter(school_class__students__in=children).distinct().select_related('subject', 'school_class')
+            logger.debug(f"Parent {user.username} accessing homework for their children.")
+            return queryset
+        else:
+            logger.warning(f"User {user.username} with unknown role trying to access homework.")
+            return Homework.objects.none()
 
 
 class SubmittedHomeworkViewSet(viewsets.ModelViewSet):
     """
-    ViewSet для управления отправленными домашними заданиями.
+    ViewSet for managing submitted homework.
     """
     queryset = SubmittedHomework.objects.select_related('homework', 'student').all()
     serializer_class = SubmittedHomeworkSerializer
@@ -281,40 +329,48 @@ class SubmittedHomeworkViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """
-        - Учителя видят все отправленные задания по их предметам.
-        - Студенты видят только свои отправленные задания.
-        - Родители видят отправленные задания своих детей.
+        - Teachers see all submitted homework for their subjects.
+        - Students see only their own submissions.
+        - Parents see their children's submissions.
         """
         user = self.request.user
         if user.role == User.TEACHER:
             queryset = SubmittedHomework.objects.filter(homework__teacher=user).select_related('homework', 'student')
-            logger.debug(f"Учитель {user.username} просматривает отправленные домашние задания по своим предметам.")
+            logger.debug(f"Teacher {user.username} accessing submitted homework for their subjects.")
             return queryset
         elif user.role == User.STUDENT:
             queryset = SubmittedHomework.objects.filter(student=user).select_related('homework', 'student')
-            logger.debug(f"Студент {user.username} просматривает свои отправленные домашние задания.")
+            logger.debug(f"Student {user.username} accessing their submitted homework.")
             return queryset
         elif user.role == User.PARENT:
-            children = user.parent_relations.values_list('child', flat=True)
-            queryset = SubmittedHomework.objects.filter(student__in=children).select_related('homework', 'student')
-            logger.debug(f"Родитель {user.username} просматривает отправленные задания своих детей.")
+            children_ids = user.parent_relations.values_list('child__id', flat=True)
+            queryset = SubmittedHomework.objects.filter(student__id__in=children_ids).select_related('homework', 'student')
+            logger.debug(f"Parent {user.username} accessing submitted homework for their children.")
             return queryset
         else:
-            logger.warning(f"Пользователь {user.username} с неизвестной ролью пытается получить доступ к отправленным заданиям.")
+            logger.warning(f"User {user.username} with unknown role trying to access submitted homework.")
             return SubmittedHomework.objects.none()
 
     def perform_create(self, serializer):
         try:
             submitted_homework = serializer.save(student=self.request.user)
-            logger.info(f"Студент {self.request.user.username} отправил домашнее задание: {submitted_homework.homework.description}")
+            logger.info(f"Student {self.request.user.username} submitted homework: {submitted_homework.homework.description}")
         except Exception as e:
-            logger.error(f"Ошибка при отправке домашнего задания студентом {self.request.user.username}: {e}")
+            logger.error(f"Error submitting homework by student {self.request.user.username}: {e}")
+            raise e
+
+    def perform_update(self, serializer):
+        try:
+            submitted_homework = serializer.save()
+            logger.info(f"Student {self.request.user.username} updated submitted homework: {submitted_homework.homework.description}")
+        except Exception as e:
+            logger.error(f"Error updating submitted homework by student {self.request.user.username}: {e}")
             raise e
 
 
 class GradeViewSet(viewsets.ModelViewSet):
     """
-    ViewSet для управления оценками.
+    ViewSet for managing grades.
     """
     queryset = Grade.objects.select_related('student', 'subject', 'teacher').all()
     serializer_class = GradeSerializer
@@ -327,134 +383,135 @@ class GradeViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """
-        - Учителя видят оценки, которые они выставили.
-        - Студенты видят только свои оценки.
-        - Родители видят оценки своих детей.
+        - Teachers see grades they've assigned.
+        - Students see their own grades.
+        - Parents see their children's grades.
         """
         user = self.request.user
         if user.role == User.TEACHER:
             queryset = Grade.objects.filter(teacher=user).select_related('student', 'subject', 'teacher')
-            logger.debug(f"Учитель {user.username} просматривает свои оценки.")
+            logger.debug(f"Teacher {user.username} accessing their assigned grades.")
             return queryset
         elif user.role == User.STUDENT:
             queryset = Grade.objects.filter(student=user).select_related('student', 'subject', 'teacher')
-            logger.debug(f"Студент {user.username} просматривает свои оценки.")
+            logger.debug(f"Student {user.username} accessing their grades.")
             return queryset
         elif user.role == User.PARENT:
-            children = user.parent_relations.values_list('child', flat=True)
-            queryset = Grade.objects.filter(student__in=children).select_related('student', 'subject', 'teacher')
-            logger.debug(f"Родитель {user.username} просматривает оценки своих детей.")
+            children_ids = user.parent_relations.values_list('child__id', flat=True)
+            queryset = Grade.objects.filter(student__id__in=children_ids).select_related('student', 'subject', 'teacher')
+            logger.debug(f"Parent {user.username} accessing grades for their children.")
             return queryset
         else:
-            logger.warning(f"Пользователь {user.username} с неизвестной ролью пытается получить доступ к оценкам.")
+            logger.warning(f"User {user.username} with unknown role trying to access grades.")
             return Grade.objects.none()
 
     def perform_create(self, serializer):
         try:
             grade = serializer.save(teacher=self.request.user)
-            logger.info(f"Учитель {self.request.user.username} выставил оценку {grade.grade} студенту {grade.student.username} по предмету {grade.subject.name}")
+            logger.info(f"Teacher {self.request.user.username} assigned grade {grade.grade} to student {grade.student.username} for subject {grade.subject.name}")
         except Exception as e:
-            logger.error(f"Ошибка при выставлении оценки: {e}")
+            logger.error(f"Error assigning grade by teacher {self.request.user.username}: {e}")
             raise e
 
 
 class AttendanceViewSet(viewsets.ModelViewSet):
     """
-    ViewSet для управления записями посещаемости.
-    Включает пользовательские действия для отметки посещаемости на основе GPS координат.
+    ViewSet for managing attendance records.
+    Includes custom actions for marking attendance based on GPS coordinates.
     """
-    queryset = Attendance.objects.select_related('student', 'class_obj', 'school').all()
+    queryset = Attendance.objects.select_related('student', 'school_class', 'school').all()
     serializer_class = AttendanceSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = StandardResultsSetPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['student__username', 'class_obj__name', 'status']
+    search_fields = ['student__username', 'school_class__name', 'status']
     ordering_fields = ['date', 'status']
     ordering = ['-date']
 
     def get_queryset(self):
         """
-        - Учителя видят посещаемость для своих классов.
-        - Студенты видят только свою посещаемость.
-        - Родители видят посещаемость своих детей.
+        - Teachers see attendance for their classes.
+        - Students see their own attendance.
+        - Parents see their children's attendance.
         """
         user = self.request.user
 
         if user.role == User.TEACHER:
-            teacher_classes = Class.objects.filter(teachers=user)
-            queryset = Attendance.objects.filter(class_obj__in=teacher_classes).select_related('student', 'class_obj', 'school')
-            logger.debug(f"Учитель {user.username} просматривает посещаемость своих классов.")
+            teacher_classes = SchoolClass.objects.filter(teachers=user)
+            queryset = Attendance.objects.filter(school_class__in=teacher_classes).select_related('student', 'school_class', 'school')
+            logger.debug(f"Teacher {user.username} accessing attendance for their classes.")
             return queryset
         elif user.role == User.STUDENT:
-            queryset = Attendance.objects.filter(student=user).select_related('student', 'class_obj', 'school')
-            logger.debug(f"Студент {user.username} просматривает свою посещаемость.")
+            queryset = Attendance.objects.filter(student=user).select_related('student', 'school_class', 'school')
+            logger.debug(f"Student {user.username} accessing their attendance.")
             return queryset
         elif user.role == User.PARENT:
-            children = User.objects.filter(parent_relations__parent=user)
-            queryset = Attendance.objects.filter(student__in=children).select_related('student', 'class_obj', 'school')
-            logger.debug(f"Родитель {user.username} просматривает посещаемость своих детей.")
+            children_ids = user.parent_relations.values_list('child__id', flat=True)
+            queryset = Attendance.objects.filter(student__id__in=children_ids).select_related('student', 'school_class', 'school')
+            logger.debug(f"Parent {user.username} accessing attendance for their children.")
             return queryset
         else:
-            logger.warning(f"Пользователь {user.username} с неизвестной ролью пытается получить доступ к посещаемости.")
+            logger.warning(f"User {user.username} with unknown role trying to access attendance.")
             return Attendance.objects.none()
 
-    @action(detail=False, methods=['post'], permission_classes=[IsStudent])
+    @action(detail=False, methods=['post'], permission_classes=[IsStudent], throttle_classes=[UserRateThrottle])
     def mark_attendance(self, request):
         """
-        Пользователь (студент) может отметить свою посещаемость на основе GPS координат.
+        Allows a student to mark their attendance based on GPS coordinates.
+        Implements throttling to prevent abuse.
         """
         user = request.user
 
         try:
-            # Получаем школу пользователя
+            # Get the user's school
             school = user.school
             if not school:
-                logger.warning(f"Студент {user.username} не имеет назначенной школы.")
-                return Response({"error": "У пользователя не назначена школа."},
+                logger.warning(f"Student {user.username} does not have an assigned school.")
+                return Response({"error": "User does not have an assigned school."},
                                 status=status.HTTP_400_BAD_REQUEST)
 
-            # Получаем координаты из запроса
+            # Get coordinates from the request
             latitude = request.data.get('latitude')
             longitude = request.data.get('longitude')
             if not latitude or not longitude:
-                logger.warning(f"Студент {user.username} отправил неполные координаты для посещаемости.")
-                return Response({"error": "Необходимо указать широту и долготу."},
+                logger.warning(f"Student {user.username} submitted incomplete coordinates for attendance.")
+                return Response({"error": "Latitude and longitude are required."},
                                 status=status.HTTP_400_BAD_REQUEST)
 
             latitude = float(latitude)
             longitude = float(longitude)
         except ValueError:
-            logger.warning(f"Студент {user.username} отправил некорректные координаты: latitude={latitude}, longitude={longitude}")
-            return Response({"error": "Неверный формат широты или долготы."},
+            logger.warning(f"Student {user.username} submitted invalid coordinates: latitude={latitude}, longitude={longitude}")
+            return Response({"error": "Invalid latitude or longitude format."},
                             status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            logger.error(f"Неизвестная ошибка при обработке координат студента {user.username}: {e}")
-            return Response({"error": "Не удалось обработать координаты."},
-                            status=status.HTTP_400_BAD_REQUEST)
+            logger.error(f"Unexpected error processing coordinates for student {user.username}: {e}")
+            return Response({"error": "Failed to process coordinates."},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         try:
-            # Расчёт расстояния до школы
+            # Calculate distance to the school
             student_coords = (latitude, longitude)
             school_coords = (float(school.latitude), float(school.longitude))
             distance = geodesic(student_coords, school_coords).kilometers
 
-            # Определяем статус посещаемости
-            proximity_radius = 0.1  # Радиус в километрах (100 метров)
+            # Determine attendance status
+            proximity_radius = 0.1  # 100 meters
             status_value = 'present' if distance <= proximity_radius else 'absent'
 
-            # Получаем класс пользователя
+            # Get the student's class
             class_obj = user.classes.first()
             if not class_obj:
-                logger.warning(f"Студент {user.username} не назначен в класс.")
-                return Response({"error": "У студента не назначен класс."},
+                logger.warning(f"Student {user.username} is not assigned to any class.")
+                return Response({"error": "Student is not assigned to any class."},
                                 status=status.HTTP_400_BAD_REQUEST)
 
-            # Создаём или обновляем запись посещаемости на сегодня
+            # Create or update attendance record for today
             attendance, created = Attendance.objects.update_or_create(
                 student=user,
                 date=localtime(now()).date(),
                 defaults={
-                    'class_obj': class_obj,
+                    'school_class': class_obj,
                     'latitude': latitude,
                     'longitude': longitude,
                     'status': status_value,
@@ -462,53 +519,59 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             )
 
             if created:
-                logger.info(f"Студент {user.username} отметил посещаемость как {'присутствует' if status_value == 'present' else 'отсутствует'}")
+                logger.info(f"Student {user.username} marked attendance as {'present' if status_value == 'present' else 'absent'}.")
             else:
-                logger.info(f"Студент {user.username} обновил посещаемость на {'присутствует' if status_value == 'present' else 'отсутствует'}")
+                logger.info(f"Student {user.username} updated attendance to {'present' if status_value == 'present' else 'absent'}.")
+            
+            # Invalidate the leaderboard cache since attendance has changed
+            cache.delete('leaderboard_xp_cache')
+            cache.delete('leaderboard_attendance_cache')
+            cache.delete('leaderboard_grades_cache')
+            logger.info("Leaderboard caches invalidated due to attendance update.")
 
             return Response(AttendanceSerializer(attendance).data, status=status.HTTP_201_CREATED)
         except Exception as e:
-            logger.error(f"Ошибка при отметке посещаемости студентом {user.username}: {e}")
-            return Response({"error": "Не удалось отметить посещаемость."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error(f"Error marking attendance for student {user.username}: {e}")
+            return Response({"error": "Failed to mark attendance."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
     def today(self, request):
         """
-        Получение записей посещаемости на сегодня для текущего пользователя.
+        Retrieve today's attendance records for the current user.
         """
         user = request.user
         today_date = localtime(now()).date()
 
         try:
             if user.role == User.TEACHER:
-                teacher_classes = Class.objects.filter(teachers=user)
+                teacher_classes = SchoolClass.objects.filter(teachers=user)
                 attendance_records = Attendance.objects.filter(
-                    class_obj__in=teacher_classes,
+                    school_class__in=teacher_classes,
                     date=today_date
-                ).select_related('student', 'class_obj', 'school')
-                logger.info(f"Учитель {user.username} запрашивает посещаемость своих классов на сегодня.")
+                ).select_related('student', 'school_class', 'school')
+                logger.info(f"Teacher {user.username} requested today's attendance for their classes.")
             elif user.role == User.STUDENT:
-                attendance_records = Attendance.objects.filter(student=user, date=today_date).select_related('student', 'class_obj', 'school')
-                logger.info(f"Студент {user.username} запрашивает свою посещаемость на сегодня.")
+                attendance_records = Attendance.objects.filter(student=user, date=today_date).select_related('student', 'school_class', 'school')
+                logger.info(f"Student {user.username} requested their attendance for today.")
             elif user.role == User.PARENT:
-                children = User.objects.filter(parent_relations__parent=user)
-                attendance_records = Attendance.objects.filter(student__in=children, date=today_date).select_related('student', 'class_obj', 'school')
-                logger.info(f"Родитель {user.username} запрашивает посещаемость своих детей на сегодня.")
+                children_ids = user.parent_relations.values_list('child__id', flat=True)
+                attendance_records = Attendance.objects.filter(student__id__in=children_ids, date=today_date).select_related('student', 'school_class', 'school')
+                logger.info(f"Parent {user.username} requested today's attendance for their children.")
             else:
-                logger.warning(f"Пользователь {user.username} с неизвестной ролью пытается получить доступ к посещаемости.")
-                return Response({"error": "У вас нет доступа к этому эндпоинту."},
+                logger.warning(f"User {user.username} with unknown role attempted to access today's attendance.")
+                return Response({"error": "You do not have access to this endpoint."},
                                 status=status.HTTP_403_FORBIDDEN)
 
             serializer = AttendanceSerializer(attendance_records, many=True)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except Exception as e:
-            logger.error(f"Ошибка при получении посещаемости для пользователя {user.username}: {e}")
-            return Response({"error": "Не удалось получить посещаемость."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.error(f"Error retrieving today's attendance for user {user.username}: {e}")
+            return Response({"error": "Failed to retrieve attendance."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 class AchievementViewSet(viewsets.ModelViewSet):
     """
-    ViewSet для управления достижениями.
+    ViewSet for managing achievements.
     """
     queryset = Achievement.objects.all()
     serializer_class = AchievementSerializer
@@ -522,15 +585,15 @@ class AchievementViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         try:
             achievement = serializer.save()
-            logger.info(f"Создано новое достижение: {achievement.name}")
+            logger.info(f"Created new achievement: {achievement.name}")
         except Exception as e:
-            logger.error(f"Ошибка при создании достижения: {e}")
+            logger.error(f"Error creating achievement: {e}")
             raise e
 
 
 class UserProfileViewSet(viewsets.ModelViewSet):
     """
-    ViewSet для управления профилями пользователей.
+    ViewSet for managing user profiles.
     """
     queryset = UserProfile.objects.select_related('user').prefetch_related('achievements').all()
     serializer_class = UserProfileSerializer
@@ -545,47 +608,96 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.is_staff:
             queryset = UserProfile.objects.all().select_related('user').prefetch_related('achievements')
-            logger.debug(f"Администратор {user.username} просматривает все профили пользователей.")
+            logger.debug(f"Admin {user.username} accessing all user profiles.")
             return queryset
         else:
             queryset = UserProfile.objects.filter(user=user).select_related('user').prefetch_related('achievements')
-            logger.debug(f"Пользователь {user.username} просматривает свой профиль.")
+            logger.debug(f"User {user.username} accessing their own profile.")
             return queryset
 
     def perform_create(self, serializer):
         try:
             user_profile = serializer.save()
-            logger.info(f"Создан профиль для пользователя: {user_profile.user.username}")
+            logger.info(f"Created profile for user: {user_profile.user.username}")
         except Exception as e:
-            logger.error(f"Ошибка при создании профиля для пользователя: {e}")
+            logger.error(f"Error creating profile for user: {e}")
             raise e
 
 
 class LeaderboardViewSet(viewsets.ReadOnlyModelViewSet):
     """
-    ReadOnly ViewSet для отображения таблицы лидеров.
+    ReadOnly ViewSet for displaying leaderboards based on different metrics.
     """
-    queryset = Leaderboard.objects.select_related('user_profile__user').all().order_by('rank')
-    serializer_class = LeaderboardSerializer
     permission_classes = [permissions.IsAuthenticated]
-    pagination_class = StandardResultsSetPagination
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['user_profile__user__username']
     ordering_fields = ['rank']
     ordering = ['rank']
+    pagination_class = StandardResultsSetPagination
+
+    def get_queryset(self):
+        """
+        Returns different querysets based on the 'metric' parameter:
+        - 'xp': Leaderboard based on XP.
+        - 'attendance': Leaderboard based on attendance.
+        - 'grades': Leaderboard based on grades.
+        """
+        metric = self.request.query_params.get('metric', 'xp')
+        logger.debug(f"Fetching leaderboard for metric: {metric}")
+
+        if metric == 'xp':
+            queryset = UserProfile.objects.annotate(
+                total_xp=Sum('userachievement__xp')
+            ).order_by('-total_xp')[:100]  # Top 100
+            return queryset
+        elif metric == 'attendance':
+            queryset = UserProfile.objects.annotate(
+                total_attendance=Count('attendance', filter=Q(attendance__status='present'))
+            ).order_by('-total_attendance')[:100]
+            return queryset
+        elif metric == 'grades':
+            queryset = UserProfile.objects.annotate(
+                average_grade=Avg('grade__grade')
+            ).order_by('-average_grade')[:100]
+            return queryset
+        else:
+            logger.warning(f"Invalid metric requested: {metric}. Defaulting to XP.")
+            queryset = UserProfile.objects.annotate(
+                total_xp=Sum('userachievement__xp')
+            ).order_by('-total_xp')[:100]
+            return queryset
 
     def list(self, request, *args, **kwargs):
-        try:
-            logger.info(f"Пользователь {request.user.username} запрашивает таблицу лидеров.")
-            return super().list(request, *args, **kwargs)
-        except Exception as e:
-            logger.error(f"Ошибка при запросе таблицы лидеров: {e}")
-            return Response({"error": "Не удалось получить таблицу лидеров."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        """
+        Override list method to implement caching based on metric.
+        """
+        metric = request.query_params.get('metric', 'xp')
+        cache_key = f'leaderboard_{metric}_cache'
+        leaderboard_data = cache.get(cache_key)
+
+        if leaderboard_data is None:
+            try:
+                queryset = self.get_queryset()
+                serializer = UserProfileSerializer(queryset, many=True)
+                leaderboard_data = serializer.data
+                cache.set(cache_key, leaderboard_data, 300)  # Cache for 5 minutes
+                logger.info(f"Leaderboard data cached for metric: {metric}")
+            except Exception as e:
+                logger.error(f"Error retrieving leaderboard for metric {metric}: {e}")
+                return Response({"error": "Failed to retrieve leaderboard."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        else:
+            logger.info(f"Leaderboard data retrieved from cache for metric: {metric}")
+
+        # Enhance data with rank
+        for index, user_data in enumerate(leaderboard_data, start=1):
+            user_data['rank'] = index
+
+        return Response(leaderboard_data, status=status.HTTP_200_OK)
 
 
 class NotificationViewSet(viewsets.ModelViewSet):
     """
-    ViewSet для управления уведомлениями.
+    ViewSet for managing notifications.
     """
     queryset = Notification.objects.select_related('user').all()
     serializer_class = NotificationSerializer
@@ -598,24 +710,24 @@ class NotificationViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """
-        - Админы видят все уведомления.
-        - Остальные пользователи видят только свои уведомления.
+        - Admins see all notifications.
+        - Other users see only their own notifications.
         """
         user = self.request.user
         if user.is_staff:
             queryset = Notification.objects.all().select_related('user')
-            logger.debug(f"Администратор {user.username} просматривает все уведомления.")
+            logger.debug(f"Admin {user.username} accessing all notifications.")
             return queryset
         queryset = Notification.objects.filter(user=user).select_related('user')
-        logger.debug(f"Пользователь {user.username} просматривает свои уведомления.")
+        logger.debug(f"User {user.username} accessing their notifications.")
         return queryset
 
     def perform_create(self, serializer):
         try:
             notification = serializer.save(user=self.request.user)
-            logger.info(f"Пользователь {self.request.user.username} создал уведомление: {notification.message}")
+            logger.info(f"User {self.request.user.username} created a notification: {notification.message}")
         except Exception as e:
-            logger.error(f"Ошибка при создании уведомления пользователем {self.request.user.username}: {e}")
+            logger.error(f"Error creating notification for user {self.request.user.username}: {e}")
             raise e
 
 
@@ -623,14 +735,14 @@ class NotificationViewSet(viewsets.ModelViewSet):
 @permission_classes([permissions.IsAuthenticated])
 def logout_view(request):
     """
-    Выход пользователя: удаление токена.
+    User logout: delete the token.
     """
     user = request.user
     try:
         token = Token.objects.get(user=user)
         token.delete()
-        logger.info(f"Пользователь {user.username} вышел из системы. Токен удалён.")
-        return Response({"success": "Токен успешно удалён."}, status=status.HTTP_200_OK)
+        logger.info(f"User {user.username} logged out. Token deleted.")
+        return Response({"success": "Token successfully deleted."}, status=status.HTTP_200_OK)
     except Token.DoesNotExist:
-        logger.warning(f"Пользователь {user.username} попытался выйти, но токен не найден.")
-        return Response({"error": "Токен не найден."}, status=status.HTTP_400_BAD_REQUEST)
+        logger.warning(f"User {user.username} attempted to logout but no token was found.")
+        return Response({"error": "Token not found."}, status=status.HTTP_400_BAD_REQUEST)
