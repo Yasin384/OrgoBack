@@ -51,8 +51,7 @@ schema_view = get_schema_view(
 api_version = 'v1'
 
 urlpatterns = [
-    path(f'api/{api_version}/', include([
-        # Include all router URLs under /api/v1/
+   
         path('', include(router.urls)),
         
         # Authentication routes
