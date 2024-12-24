@@ -1,5 +1,3 @@
-# main/urls.py
-
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from rest_framework import permissions
@@ -51,21 +49,17 @@ schema_view = get_schema_view(
 api_version = 'v1'
 
 urlpatterns = [
-   
-        path('', include(router.urls)),
-        
-        # Authentication routes
-        path('login/', CustomObtainAuthToken.as_view(), name='api_token_auth'),
-        path('logout/', logout_view, name='api_logout'),
-        path('me/', UserMeView.as_view(), name='user_me'),
-        
-        # Swagger/OpenAPI documentation
-        path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
-        path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
-    ])),
+    # Router for all ViewSets
+    path('', include(router.urls)),
     
-    # Optional: Include API versioning for future versions
-    # path(f'api/{api_version}/', include('main.api_urls')),  # If you separate API URLs into another file
+    # Authentication routes
+    path('login/', CustomObtainAuthToken.as_view(), name='api_token_auth'),
+    path('logout/', logout_view, name='api_logout'),
+    path('me/', UserMeView.as_view(), name='user_me'),
+    
+    # Swagger/OpenAPI documentation
+    path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
+    path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
 ]
 
 # Serve static and media files during development
