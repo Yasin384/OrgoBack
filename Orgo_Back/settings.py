@@ -133,18 +133,16 @@ TEMPLATES = [
 # WSGI application
 WSGI_APPLICATION = 'Orgo_Back.wsgi.application'
 
-# Database configuration
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'railway',
         'USER': 'postgres',
-        'PASSWORD': 'hkWUiJXywuzDtMueArXgGgtLXRJqEcyX',
-        'HOST': 'autorack.proxy.rlwy.net',
-        'PORT': 28022,  # Ensure this is an integer
+        'PASSWORD': 'FZXtJZrrcEwgrFcxVtdcSQAIsdhcWdpJ',
+        'HOST': 'junction.proxy.rlwy.net',
+        'PORT': 30431,
     }
 }
-
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
 
