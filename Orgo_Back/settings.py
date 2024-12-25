@@ -31,7 +31,7 @@ DEBUG = True  # Set to False in production
 ALLOWED_HOSTS = ['*']  # Update this in production to include your domain(s)
 
 # CORS Configuration
-CORS_ALLOW_ALL_ORIGINS = False  # Ensure only specified origins are allowed
+CORS_ALLOW_ALL_ORIGINS = True  # Ensure only specified origins are allowed
 CORS_ALLOWED_ORIGINS = [
     'https://orgoback-production.up.railway.app',
     'http://localhost:3000',  # Add other production frontend domains as needed

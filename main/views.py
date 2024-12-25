@@ -149,7 +149,7 @@ class UserViewSet(viewsets.ModelViewSet):
 
 class CustomObtainAuthToken(ObtainAuthToken):
     """
-    Custom ObtainAuthToken to add token expiration check.
+    Custom ObtainAuthToken to add token expiration check. 
     """
     def post(self, request, *args, **kwargs):
         serializer = self.serializer_class(data=request.data,
