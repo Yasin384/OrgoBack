@@ -51,7 +51,7 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
 # CORS Settings
-CORS_ALLOW_CREDENTIALS = False  # Disallow cookies with cross-domain requests
+CORS_ALLOW_CREDENTIALS = True  # Disallow cookies with cross-domain requests
 
 CORS_ALLOW_METHODS = [
     "DELETE",
