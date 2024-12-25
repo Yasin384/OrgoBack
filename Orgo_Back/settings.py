@@ -28,10 +28,14 @@ SECRET_KEY = 'django-insecure-7gx)4y4h2k1)0&&k(aaoo!ukb5j&%25$iwhz$rjk6jtislfw'
 DEBUG = True  # Set to False in production
 
 # Allowed hosts
-ALLOWED_HOSTS = ['*']  # Update this in production to include your domain(s)
+ALLOWED_HOSTS = [
+    'orgoback-production.up.railway.app',
+    'http://localhost:3000',
+]
+  # Update this in production to include your domain(s)
 
 # CORS Configuration
-CORS_ALLOW_ALL_ORIGINS = True  # Ensure only specified origins are allowed
+CORS_ALLOW_ALL_ORIGINS = False # Ensure only specified origins are allowed
 CORS_ALLOWED_ORIGINS = [
     'https://orgoback-production.up.railway.app',
     'http://localhost:3000',  # Add other production frontend domains as needed
@@ -171,11 +175,14 @@ AUTH_USER_MODEL = 'main.User'
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Celery configuration
-CELERY_BROKER_URL = 'redis://127.0.0.1:6380/0'
+CELERY_BROKER_URL = 'redis://default:PXniGuVMwcNGxlbzBObcdGLtcoerSznW@autorack.proxy.rlwy.net:32165'
+CELERY_RESULT_BACKEND = 'redis://default:PXniGuVMwcNGxlbzBObcdGLtcoerSznW@autorack.proxy.rlwy.net:32165'
+
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
-CELERY_RESULT_BACKEND = 'redis://127.0.0.1:6380/0'
-CELERY_TIMEZONE = 'UTC'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'UTC'  # Adjust to your time zone
+
 
 # Internationalization
 LANGUAGE_CODE = 'ru'
