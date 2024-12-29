@@ -525,6 +525,15 @@ class UserProfile(models.Model):
         default=0,
         help_text="Накопленные очки XP."
     )
+    school_class = models.ForeignKey(
+        SchoolClass,
+        on_delete=models.CASCADE,
+        related_name='profile',
+        help_text="Класс, для связи с учителем",
+        
+        null=True,    # Allow nulls temporarily
+        blank=True,
+    )
     level = models.PositiveIntegerField(
         default=1,
         help_text="Текущий уровень пользователя."
