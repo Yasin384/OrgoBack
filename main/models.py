@@ -1,12 +1,14 @@
 # main/models.py
 
-from django.db import models
+  from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.conf import settings
 from django.utils import timezone
 import uuid
 
-# Кастомная модель пользователя с различными ролями
+# -----------------------
+# User model
+# -----------------------
 class User(AbstractUser):
     """
     Кастомная модель пользователя, расширяющая AbstractUser.
@@ -39,7 +41,10 @@ class User(AbstractUser):
     def __str__(self):
         return f"{self.username} ({self.get_role_display()})"
 
-# Модель школы
+
+# -----------------------
+# School model
+# -----------------------
 class School(models.Model):
     """
     Модель школы.
@@ -94,7 +99,138 @@ class School(models.Model):
     def __str__(self):
         return self.name
 
-# Модель класса (переименована в SchoolClass)
+
+# -----------------------
+# Achievement model
+# -----------------------
+class Achievement(models.Model):
+    """
+    Модель достижений для системы геймификации.
+    """
+    name = models.CharField(
+        max_length=100,
+        unique=True,
+        help_text="Название достижения.",
+        default="Unnamed Achievement"
+    )
+    description = models.TextField(
+        help_text="Описание достижения.",
+        default="No description provided."
+    )
+    icon = models.ImageField(
+        upload_to='achievements/icons/',
+        null=True,
+        blank=True,
+        help_text="Иконка достижения."
+    )
+    xp_reward = models.PositiveIntegerField(
+        default=0,
+        help_text="Количество XP, даваемое за достижение."
+    )
+
+    def __str__(self):
+        return self.name
+
+
+# -----------------------
+# UserProfile model
+# -----------------------
+class UserProfile(models.Model):
+    """
+    Модель профиля пользователя, содержащая информацию для геймификации.
+    """
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name='profile'
+    )
+    xp = models.PositiveIntegerField(
+        default=0,
+        help_text="Накопленные очки XP."
+    )
+    school_class = models.ForeignKey(
+        # you could also reference "SchoolClass" as a string here if needed
+        'SchoolClass',
+        on_delete=models.CASCADE,
+        related_name='profile',
+        help_text="Класс, для связи с учителем",
+        null=True,  # Allow nulls temporarily
+        blank=True,
+    )
+    level = models.PositiveIntegerField(
+        default=1,
+        help_text="Текущий уровень пользователя."
+    )
+    achievements = models.ManyToManyField(
+        Achievement,
+        through='UserAchievement',
+        related_name='users',
+        help_text="Достижения пользователя."
+    )
+
+    def __str__(self):
+        return f"{self.user.username} - Профиль"
+
+
+# -----------------------
+# UserAchievement model
+# -----------------------
+class UserAchievement(models.Model):
+    """
+    Промежуточная модель для связи пользователей с достижениями.
+    """
+    user_profile = models.ForeignKey(
+        UserProfile,
+        on_delete=models.CASCADE,
+        related_name='user_achievements',
+        help_text="Профиль пользователя."
+    )
+    achievement = models.ForeignKey(
+        Achievement,
+        on_delete=models.CASCADE,
+        related_name='user_achievements',
+        help_text="Достижение."
+    )
+    achieved_at = models.DateTimeField(
+        auto_now_add=True,
+        help_text="Дата и время достижения."
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=['user_profile', 'achievement'], name='unique_user_achievement')
+        ]
+
+    def __str__(self):
+        return f"{self.user_profile.user.username} - {self.achievement.name}"
+
+
+# -----------------------
+# Leaderboard model
+# -----------------------
+class Leaderboard(models.Model):
+    """
+    Модель таблицы лидеров для отображения рейтинга пользователей по XP.
+    """
+    user_profile = models.OneToOneField(
+        UserProfile,
+        on_delete=models.CASCADE,
+        related_name='leaderboard_entry',
+        help_text="Профиль пользователя."
+    )
+    rank = models.PositiveIntegerField(
+        unique=True,
+        help_text="Место в таблице лидеров.",
+        default=1
+    )
+
+    def __str__(self):
+        return f"{self.user_profile.user.username} - Rank {self.rank}"
+
+
+# -----------------------
+# SchoolClass model
+# -----------------------
 class SchoolClass(models.Model):
     """
     Модель класса.
@@ -110,11 +246,12 @@ class SchoolClass(models.Model):
         related_name='classes',
         help_text="Школа, к которой принадлежит класс."
     )
+    # Use a string reference to avoid the 'NameError' if the model is declared later
     user_profile = models.ForeignKey(
-        UserProfile,
+        'UserProfile',
         on_delete=models.CASCADE,
         related_name='classes',
-        help_text="Профиль пользователя."
+        help_text="Профиль пользователя (например, классный руководитель)."
     )
     students = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
@@ -137,7 +274,10 @@ class SchoolClass(models.Model):
     def __str__(self):
         return self.name
 
-# Модель предмета
+
+# -----------------------
+# Subject model
+# -----------------------
 class Subject(models.Model):
     """
     Модель предмета.
@@ -152,7 +292,10 @@ class Subject(models.Model):
     def __str__(self):
         return self.name
 
-# Промежуточная модель для связи Студент-Учитель
+
+# -----------------------
+# StudentTeacher model
+# -----------------------
 class StudentTeacher(models.Model):
     """
     Модель для связи студентов с учителями (например, наставники).
@@ -176,7 +319,7 @@ class StudentTeacher(models.Model):
         on_delete=models.CASCADE,
         related_name='student_teacher_relations',
         help_text="Класс, в котором установлены отношения.",
-        null=True,    # Allow nulls temporarily
+        null=True,
         blank=True,
     )
     relationship = models.CharField(
@@ -196,7 +339,10 @@ class StudentTeacher(models.Model):
     def __str__(self):
         return f"{self.teacher.username} -> {self.student.username} ({self.relationship})"
 
-# Модель родитель-ребёнок
+
+# -----------------------
+# ParentChild model
+# -----------------------
 class ParentChild(models.Model):
     """
     Модель для связи родителей с их детьми (студентами).
@@ -220,8 +366,8 @@ class ParentChild(models.Model):
         on_delete=models.CASCADE,
         related_name='parent_child_relations',
         help_text="Класс ребенка.",
-        default=1,  # Default to existing SchoolClass ID
-        null=False,  # Non-nullable
+        default=1,  # Make sure a SchoolClass with ID=1 exists!
+        null=False,
         blank=False
     )
 
@@ -233,7 +379,10 @@ class ParentChild(models.Model):
     def __str__(self):
         return f"{self.parent.username} -> {self.child.username} in {self.school_class.name}"
 
-# Модель расписания занятий
+
+# -----------------------
+# Schedule model
+# -----------------------
 class Schedule(models.Model):
     """
     Модель расписания занятий.
@@ -253,7 +402,7 @@ class Schedule(models.Model):
         on_delete=models.CASCADE,
         related_name='schedules',
         help_text="Класс, для которого расписание.",
-        null=True,    # Allow nulls temporarily
+        null=True,
         blank=True,
     )
     subject = models.ForeignKey(
@@ -290,7 +439,10 @@ class Schedule(models.Model):
     def __str__(self):
         return f"{self.school_class} - {self.subject} - {self.get_weekday_display()} {self.start_time}-{self.end_time}"
 
-# Модель домашнего задания
+
+# -----------------------
+# Homework model
+# -----------------------
 class Homework(models.Model):
     """
     Модель домашнего задания.
@@ -312,8 +464,8 @@ class Homework(models.Model):
         on_delete=models.CASCADE,
         related_name='homeworks',
         help_text="Класс, для которого задано домашнее задание.",
-        default=1,  # Default to existing SchoolClass ID
-        null=False,  # Non-nullable
+        default=1,  # Make sure a SchoolClass with ID=1 exists!
+        null=False,
         blank=False
     )
     description = models.TextField(
@@ -331,7 +483,10 @@ class Homework(models.Model):
     def __str__(self):
         return f"Домашнее задание по {self.subject} для {self.school_class}"
 
-# Модель отправленного домашнего задания
+
+# -----------------------
+# SubmittedHomework model
+# -----------------------
 class SubmittedHomework(models.Model):
     """
     Модель отправленного домашнего задания студентом.
@@ -389,7 +544,10 @@ class SubmittedHomework(models.Model):
     def __str__(self):
         return f"{self.student} - {self.homework}"
 
-# Модель оценок
+
+# -----------------------
+# Grade model
+# -----------------------
 class Grade(models.Model):
     """
     Модель оценок для студентов.
@@ -433,7 +591,10 @@ class Grade(models.Model):
     def __str__(self):
         return f"{self.student} - {self.subject} - {self.grade}"
 
-# Модель посещаемости
+
+# -----------------------
+# Attendance model
+# -----------------------
 class Attendance(models.Model):
     """
     Модель посещаемости студентов.
@@ -456,8 +617,8 @@ class Attendance(models.Model):
         on_delete=models.CASCADE,
         related_name='attendances',
         help_text="Класс студента.",
-        default=1,  # Default to existing SchoolClass ID
-        null=False,  # Non-nullable
+        default=1,  # Make sure a SchoolClass with ID=1 exists!
+        null=False,
         blank=False
     )
     school = models.ForeignKey(
@@ -492,119 +653,10 @@ class Attendance(models.Model):
     def __str__(self):
         return f"{self.student} - {self.date} - {self.get_status_display()}"
 
-# Модель достижений
-class Achievement(models.Model):
-    """
-    Модель достижений для системы геймификации.
-    """
-    name = models.CharField(
-        max_length=100,
-        unique=True,
-        help_text="Название достижения.",
-        default="Unnamed Achievement"
-    )
-    description = models.TextField(
-        help_text="Описание достижения.",
-        default="No description provided."
-    )
-    icon = models.ImageField(
-        upload_to='achievements/icons/',
-        null=True,
-        blank=True,
-        help_text="Иконка достижения."
-    )
-    xp_reward = models.PositiveIntegerField(
-        default=0,
-        help_text="Количество XP, даваемое за достижение."
-    )
 
-    def __str__(self):
-        return self.name
-
-# Модель профиля пользователя для геймификации
-class UserProfile(models.Model):
-    """
-    Модель профиля пользователя, содержащая информацию для геймификации.
-    """
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
-    xp = models.PositiveIntegerField(
-        default=0,
-        help_text="Накопленные очки XP."
-    )
-    school_class = models.ForeignKey(
-        SchoolClass,
-        on_delete=models.CASCADE,
-        related_name='profile',
-        help_text="Класс, для связи с учителем",
-        
-        null=True,    # Allow nulls temporarily
-        blank=True,
-    )
-    level = models.PositiveIntegerField(
-        default=1,
-        help_text="Текущий уровень пользователя."
-    )
-    achievements = models.ManyToManyField(
-        Achievement,
-        through='UserAchievement',
-        related_name='users',
-        help_text="Достижения пользователя."
-    )
-
-    def __str__(self):
-        return f"{self.user.username} - Профиль"
-
-# Модель связи пользователь-достижение
-class UserAchievement(models.Model):
-    """
-    Промежуточная модель для связи пользователей с достижениями.
-    """
-    user_profile = models.ForeignKey(
-        UserProfile,
-        on_delete=models.CASCADE,
-        related_name='user_achievements',
-        help_text="Профиль пользователя."
-    )
-    achievement = models.ForeignKey(
-        Achievement,
-        on_delete=models.CASCADE,
-        related_name='user_achievements',
-        help_text="Достижение."
-    )
-    achieved_at = models.DateTimeField(
-        auto_now_add=True,
-        help_text="Дата и время достижения."
-    )
-
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(fields=['user_profile', 'achievement'], name='unique_user_achievement')
-        ]
-
-    def __str__(self):
-        return f"{self.user_profile.user.username} - {self.achievement.name}"
-
-# Модель таблицы лидеров
-class Leaderboard(models.Model):
-    """
-    Модель таблицы лидеров для отображения рейтинга пользователей по XP.
-    """
-    user_profile = models.OneToOneField(
-        UserProfile,
-        on_delete=models.CASCADE,
-        related_name='leaderboard_entry',
-        help_text="Профиль пользователя."
-    )
-    rank = models.PositiveIntegerField(
-        unique=True,
-        help_text="Место в таблице лидеров.",
-        default=1
-    )
-
-    def __str__(self):
-        return f"{self.user_profile.user.username} - Rank {self.rank}"
-
-# Модель уведомлений
+# -----------------------
+# Notification model
+# -----------------------
 class Notification(models.Model):
     """
     Модель уведомлений для пользователей.
