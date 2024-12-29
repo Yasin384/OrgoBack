@@ -110,6 +110,12 @@ class SchoolClass(models.Model):
         related_name='classes',
         help_text="Школа, к которой принадлежит класс."
     )
+    user_profile = models.ForeignKey(
+        UserProfile,
+        on_delete=models.CASCADE,
+        related_name='classes',
+        help_text="Профиль пользователя."
+    )
     students = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         related_name='classes',
