@@ -1,4 +1,5 @@
 # main/views.py
+# views.py
 
 import logging
 import datetime
@@ -65,7 +66,6 @@ class IsParent(permissions.BasePermission):
 
 # Token expiration settings
 TOKEN_EXPIRATION_TIME = datetime.timedelta(hours=24)
-
 
 def token_is_expired(token):
     """
@@ -274,7 +274,7 @@ class HomeworkViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing homework.
     """
-    queryset = Homework.objects.select_related('subject', 'school_class').all()
+    queryset = Homework.objects.select_related('subject', 'school_class', 'teacher').all()
     serializer_class = HomeworkSerializer
     permission_classes = [permissions.IsAuthenticated]
     pagination_class = StandardResultsSetPagination
@@ -284,8 +284,12 @@ class HomeworkViewSet(viewsets.ModelViewSet):
     ordering = ['due_date']
 
     def perform_create(self, serializer):
+        """
+        Если вы хотите, чтобы создающий пользователь автоматически
+        становился `teacher`, можно делать что-то вроде:
+        """
         try:
-            homework = serializer.save()
+            homework = serializer.save(teacher=self.request.user)
             logger.info(f"Created homework: {homework.description} for class {homework.school_class.name}")
         except Exception as e:
             logger.error(f"Error creating homework: {e}")
@@ -297,16 +301,17 @@ class HomeworkViewSet(viewsets.ModelViewSet):
         """
         user = self.request.user
         if user.role == User.TEACHER:
-            queryset = Homework.objects.filter(subject__in=user.teaching_subjects.all()).select_related('subject', 'school_class')
-            logger.debug(f"Teacher {user.username} accessing homework for their subjects.")
+            # Показываем все ДЗ, где teacher = текущий пользователь
+            queryset = Homework.objects.filter(teacher=user).select_related('subject', 'school_class', 'teacher')
+            logger.debug(f"Teacher {user.username} accessing homework they created.")
             return queryset
         elif user.role == User.STUDENT:
-            queryset = Homework.objects.filter(school_class__in=user.classes.all()).select_related('subject', 'school_class')
+            queryset = Homework.objects.filter(school_class__in=user.classes.all()).select_related('subject', 'school_class', 'teacher')
             logger.debug(f"Student {user.username} accessing homework for their classes.")
             return queryset
         elif user.role == User.PARENT:
             children = user.parent_relations.values_list('child', flat=True)
-            queryset = Homework.objects.filter(school_class__students__in=children).distinct().select_related('subject', 'school_class')
+            queryset = Homework.objects.filter(school_class__students__in=children).distinct().select_related('subject', 'school_class', 'teacher')
             logger.debug(f"Parent {user.username} accessing homework for their children.")
             return queryset
         else:
@@ -329,14 +334,14 @@ class SubmittedHomeworkViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         """
-        - Teachers see all submitted homework for their subjects.
+        - Teachers see all submitted homework for the homeworks they created.
         - Students see only their own submissions.
         - Parents see their children's submissions.
         """
         user = self.request.user
         if user.role == User.TEACHER:
             queryset = SubmittedHomework.objects.filter(homework__teacher=user).select_related('homework', 'student')
-            logger.debug(f"Teacher {user.username} accessing submitted homework for their subjects.")
+            logger.debug(f"Teacher {user.username} accessing submitted homework for their own homeworks.")
             return queryset
         elif user.role == User.STUDENT:
             queryset = SubmittedHomework.objects.filter(student=user).select_related('homework', 'student')
@@ -463,14 +468,12 @@ class AttendanceViewSet(viewsets.ModelViewSet):
         user = request.user
 
         try:
-            # Get the user's school
             school = user.school
             if not school:
                 logger.warning(f"Student {user.username} does not have an assigned school.")
                 return Response({"error": "User does not have an assigned school."},
                                 status=status.HTTP_400_BAD_REQUEST)
 
-            # Get coordinates from the request
             latitude = request.data.get('latitude')
             longitude = request.data.get('longitude')
             if not latitude or not longitude:
@@ -495,7 +498,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             school_coords = (float(school.latitude), float(school.longitude))
             distance = geodesic(student_coords, school_coords).kilometers
 
-            # Determine attendance status
+            # Determine attendance status (e.g., present if within 100m)
             proximity_radius = 0.1  # 100 meters
             status_value = 'present' if distance <= proximity_radius else 'absent'
 
@@ -512,6 +515,7 @@ class AttendanceViewSet(viewsets.ModelViewSet):
                 date=localtime(now()).date(),
                 defaults={
                     'school_class': class_obj,
+                    'school': school,
                     'latitude': latitude,
                     'longitude': longitude,
                     'status': status_value,
@@ -519,10 +523,10 @@ class AttendanceViewSet(viewsets.ModelViewSet):
             )
 
             if created:
-                logger.info(f"Student {user.username} marked attendance as {'present' if status_value == 'present' else 'absent'}.")
+                logger.info(f"Student {user.username} marked attendance as {status_value}.")
             else:
-                logger.info(f"Student {user.username} updated attendance to {'present' if status_value == 'present' else 'absent'}.")
-            
+                logger.info(f"Student {user.username} updated attendance to {status_value}.")
+
             # Invalidate the leaderboard cache since attendance has changed
             cache.delete('leaderboard_xp_cache')
             cache.delete('leaderboard_attendance_cache')
@@ -646,24 +650,27 @@ class LeaderboardViewSet(viewsets.ReadOnlyModelViewSet):
         logger.debug(f"Fetching leaderboard for metric: {metric}")
 
         if metric == 'xp':
+            # Пример: суммарный XP за достижения
             queryset = UserProfile.objects.annotate(
-                total_xp=Sum('userachievement__xp')
+                total_xp=Sum('userachievement__achievement__xp_reward')
             ).order_by('-total_xp')[:100]  # Top 100
             return queryset
         elif metric == 'attendance':
+            # Количество присутствий
             queryset = UserProfile.objects.annotate(
-                total_attendance=Count('attendance', filter=Q(attendance__status='present'))
+                total_attendance=Count('user__attendances', filter=Q(user__attendances__status='present'))
             ).order_by('-total_attendance')[:100]
             return queryset
         elif metric == 'grades':
+            # Средняя оценка
             queryset = UserProfile.objects.annotate(
-                average_grade=Avg('grade__grade')
+                average_grade=Avg('user__grades__grade')
             ).order_by('-average_grade')[:100]
             return queryset
         else:
             logger.warning(f"Invalid metric requested: {metric}. Defaulting to XP.")
             queryset = UserProfile.objects.annotate(
-                total_xp=Sum('userachievement__xp')
+                total_xp=Sum('userachievement__achievement__xp_reward')
             ).order_by('-total_xp')[:100]
             return queryset
 
