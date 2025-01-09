@@ -10,9 +10,6 @@ import uuid
 # User model
 # -----------------------
 class User(AbstractUser):
-    """
-    Кастомная модель пользователя, расширяющая AbstractUser.
-    """
     STUDENT = 'student'
     TEACHER = 'teacher'
     PARENT = 'parent'
@@ -46,9 +43,6 @@ class User(AbstractUser):
 # School model
 # -----------------------
 class School(models.Model):
-    """
-    Модель школы.
-    """
     name = models.CharField(
         max_length=255,
         unique=True,
@@ -104,9 +98,6 @@ class School(models.Model):
 # Achievement model
 # -----------------------
 class Achievement(models.Model):
-    """
-    Модель достижений для системы геймификации.
-    """
     name = models.CharField(
         max_length=100,
         unique=True,
@@ -136,9 +127,6 @@ class Achievement(models.Model):
 # UserProfile model
 # -----------------------
 class UserProfile(models.Model):
-    """
-    Модель профиля пользователя, содержащая информацию для геймификации.
-    """
     user = models.OneToOneField(
         User,
         on_delete=models.CASCADE,
@@ -148,13 +136,14 @@ class UserProfile(models.Model):
         default=0,
         help_text="Накопленные очки XP."
     )
+    # Если у вас есть причина хранить класс прямо здесь:
+    # (но учтите, что у вас также есть SchoolClass.students M2M)
     school_class = models.ForeignKey(
-        # you could also reference "SchoolClass" as a string here if needed
         'SchoolClass',
         on_delete=models.CASCADE,
         related_name='profile',
         help_text="Класс, для связи с учителем",
-        null=True,  # Allow nulls temporarily
+        null=True,
         blank=True,
     )
     level = models.PositiveIntegerField(
@@ -176,9 +165,6 @@ class UserProfile(models.Model):
 # UserAchievement model
 # -----------------------
 class UserAchievement(models.Model):
-    """
-    Промежуточная модель для связи пользователей с достижениями.
-    """
     user_profile = models.ForeignKey(
         UserProfile,
         on_delete=models.CASCADE,
@@ -209,9 +195,6 @@ class UserAchievement(models.Model):
 # Leaderboard model
 # -----------------------
 class Leaderboard(models.Model):
-    """
-    Модель таблицы лидеров для отображения рейтинга пользователей по XP.
-    """
     user_profile = models.OneToOneField(
         UserProfile,
         on_delete=models.CASCADE,
@@ -232,9 +215,6 @@ class Leaderboard(models.Model):
 # SchoolClass model
 # -----------------------
 class SchoolClass(models.Model):
-    """
-    Модель класса.
-    """
     name = models.CharField(
         max_length=100,
         unique=True,
@@ -246,12 +226,13 @@ class SchoolClass(models.Model):
         related_name='classes',
         help_text="Школа, к которой принадлежит класс."
     )
-    # Use a string reference to avoid the 'NameError' if the model is declared later
     user_profile = models.ForeignKey(
         'UserProfile',
         on_delete=models.CASCADE,
         related_name='classes',
-        help_text="Профиль пользователя (например, классный руководитель)."
+        help_text="Профиль классного руководителя (если нужно).",
+        null=True,
+        blank=True,
     )
     students = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
@@ -279,9 +260,6 @@ class SchoolClass(models.Model):
 # Subject model
 # -----------------------
 class Subject(models.Model):
-    """
-    Модель предмета.
-    """
     name = models.CharField(
         max_length=50,
         unique=True,
@@ -297,9 +275,6 @@ class Subject(models.Model):
 # StudentTeacher model
 # -----------------------
 class StudentTeacher(models.Model):
-    """
-    Модель для связи студентов с учителями (например, наставники).
-    """
     student = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -344,9 +319,6 @@ class StudentTeacher(models.Model):
 # ParentChild model
 # -----------------------
 class ParentChild(models.Model):
-    """
-    Модель для связи родителей с их детьми (студентами).
-    """
     parent = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -365,10 +337,7 @@ class ParentChild(models.Model):
         SchoolClass,
         on_delete=models.CASCADE,
         related_name='parent_child_relations',
-        help_text="Класс ребенка.",
-        default=1,  # Make sure a SchoolClass with ID=1 exists!
-        null=False,
-        blank=False
+        help_text="Класс ребенка."
     )
 
     class Meta:
@@ -384,9 +353,6 @@ class ParentChild(models.Model):
 # Schedule model
 # -----------------------
 class Schedule(models.Model):
-    """
-    Модель расписания занятий.
-    """
     WEEKDAYS = [
         (1, 'Понедельник'),
         (2, 'Вторник'),
@@ -444,9 +410,6 @@ class Schedule(models.Model):
 # Homework model
 # -----------------------
 class Homework(models.Model):
-    """
-    Модель домашнего задания.
-    """
     id = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
@@ -463,10 +426,17 @@ class Homework(models.Model):
         SchoolClass,
         on_delete=models.CASCADE,
         related_name='homeworks',
-        help_text="Класс, для которого задано домашнее задание.",
-        default=1,  # Make sure a SchoolClass with ID=1 exists!
-        null=False,
-        blank=False
+        help_text="Класс, для которого задано домашнее задание."
+    )
+    # Добавляем поле teacher, чтобы было понятно, кто назначил задание
+    teacher = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        limit_choices_to={'role': User.TEACHER},
+        related_name='homeworks',
+        null=True,
+        blank=True,
+        help_text="Учитель, задавший это задание."
     )
     description = models.TextField(
         help_text="Описание домашнего задания.",
@@ -488,9 +458,6 @@ class Homework(models.Model):
 # SubmittedHomework model
 # -----------------------
 class SubmittedHomework(models.Model):
-    """
-    Модель отправленного домашнего задания студентом.
-    """
     STATUS_CHOICES = [
         ('submitted', 'Отправлено'),
         ('graded', 'Оценено'),
@@ -549,9 +516,6 @@ class SubmittedHomework(models.Model):
 # Grade model
 # -----------------------
 class Grade(models.Model):
-    """
-    Модель оценок для студентов.
-    """
     student = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -596,9 +560,6 @@ class Grade(models.Model):
 # Attendance model
 # -----------------------
 class Attendance(models.Model):
-    """
-    Модель посещаемости студентов.
-    """
     STATUS_CHOICES = [
         ('present', 'Присутствует'),
         ('absent', 'Отсутствует'),
@@ -616,10 +577,7 @@ class Attendance(models.Model):
         SchoolClass,
         on_delete=models.CASCADE,
         related_name='attendances',
-        help_text="Класс студента.",
-        default=1,  # Make sure a SchoolClass with ID=1 exists!
-        null=False,
-        blank=False
+        help_text="Класс студента."
     )
     school = models.ForeignKey(
         School,
@@ -645,6 +603,22 @@ class Attendance(models.Model):
         help_text="Примечания к посещаемости."
     )
 
+    # Добавляем поля для хранения координат
+    latitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        help_text="Широта при отметке посещаемости."
+    )
+    longitude = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+        help_text="Долгота при отметке посещаемости."
+    )
+
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=['student', 'date'], name='unique_attendance')
@@ -658,9 +632,6 @@ class Attendance(models.Model):
 # Notification model
 # -----------------------
 class Notification(models.Model):
-    """
-    Модель уведомлений для пользователей.
-    """
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -682,3 +653,4 @@ class Notification(models.Model):
 
     def __str__(self):
         return f"Уведомление для {self.user.username} - {'Прочитано' if self.is_read else 'Не прочитано'}"
+
